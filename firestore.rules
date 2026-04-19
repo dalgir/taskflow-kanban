@@ -1,0 +1,147 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberPath() {
+      return /databases/$(database)/documents/teamMembers/$(request.auth.uid);
+    }
+
+    function memberDoc() {
+      return get(memberPath());
+    }
+
+    function memberData() {
+      return memberDoc().data;
+    }
+
+    function activeMember() {
+      return signedIn()
+        && exists(memberPath())
+        && memberData().isActive == true
+        && memberData().email == request.auth.token.email;
+    }
+
+    function isAdmin() {
+      return activeMember() && memberData().isAdmin == true;
+    }
+
+    function isSelf(userId) {
+      return activeMember() && request.auth.uid == userId;
+    }
+
+    function isSelfByMemberId(memberId) {
+      return activeMember() && memberData().id == memberId;
+    }
+
+    function validTaskStatus(status) {
+      return status in ['planned', 'in_progress', 'awaiting_validation', 'completed', 'approved'];
+    }
+
+    function validTaskPayload(data) {
+      return data.keys().hasAll(['id', 'title', 'description', 'status', 'columnId', 'createdAt', 'createdBy'])
+        && data.id is string
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 150
+        && data.description is string
+        && data.description.size() <= 5000
+        && validTaskStatus(data.status)
+        && data.columnId is string
+        && data.createdBy is string;
+    }
+
+    function canReadTask(data) {
+      return isAdmin()
+        || data.assigneeId == memberData().id
+        || data.createdBy == memberData().id;
+    }
+
+    function canWriteTask(data) {
+      return isAdmin()
+        || data.assigneeId == memberData().id
+        || data.createdBy == memberData().id;
+    }
+
+    match /teamMembers/{userId} {
+      allow read: if activeMember();
+
+      allow create: if isAdmin()
+        && request.resource.data.id == userId
+        && request.resource.data.email is string
+        && request.resource.data.isAdmin is bool
+        && request.resource.data.isActive is bool;
+
+      allow update: if (isAdmin() || isSelf(userId))
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.email == resource.data.email
+        && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin);
+
+      allow delete: if isAdmin() && !isSelf(userId);
+    }
+
+    match /tasks/{taskId} {
+      allow read: if activeMember() && canReadTask(resource.data);
+
+      allow create: if activeMember()
+        && validTaskPayload(request.resource.data)
+        && request.resource.data.id == taskId
+        && canWriteTask(request.resource.data);
+
+      allow update: if activeMember()
+        && validTaskPayload(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && canWriteTask(resource.data)
+        && canWriteTask(request.resource.data)
+        && (
+          isAdmin()
+          || (
+            request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.validationStatus == resource.data.validationStatus
+            && request.resource.data.validationComment == resource.data.validationComment
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /absences/{absenceId} {
+      allow read: if activeMember();
+
+      allow create: if activeMember()
+        && request.resource.data.id == absenceId
+        && (isAdmin() || isSelfByMemberId(request.resource.data.memberId));
+
+      allow update: if activeMember()
+        && request.resource.data.id == resource.data.id
+        && (isAdmin() || isSelfByMemberId(resource.data.memberId));
+
+      allow delete: if activeMember() && (isAdmin() || isSelfByMemberId(resource.data.memberId));
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if activeMember() && (isAdmin() || resource.data.userId == memberData().id);
+
+      allow create: if activeMember()
+        && request.resource.data.id == notificationId
+        && (isAdmin() || request.resource.data.userId == memberData().id);
+
+      allow update: if activeMember()
+        && request.resource.data.id == resource.data.id
+        && (
+          isAdmin()
+          || (
+            resource.data.userId == memberData().id
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.message == resource.data.message
+            && request.resource.data.type == resource.data.type
+            && request.resource.data.taskId == resource.data.taskId
+          )
+        );
+
+      allow delete: if isAdmin() || (activeMember() && resource.data.userId == memberData().id);
+    }
+  }
+}

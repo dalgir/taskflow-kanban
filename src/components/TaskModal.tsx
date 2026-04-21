@@ -51,6 +51,15 @@ const resolveColumnIdForAssignee = (assigneeId: string | null) => {
   return assigneeId ? `member-${assigneeId}` : 'backlog';
 };
 
+const parseLocalDate = (value: string): Date | null => {
+  if (!value) return null;
+
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return null;
+
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+};
+
 export function TaskModal({ task, columnId, onClose, mode: initialMode }: TaskModalProps) {
   const {
     teamMembers,
@@ -131,8 +140,8 @@ export function TaskModal({ task, columnId, onClose, mode: initialMode }: TaskMo
     if (!title.trim()) return;
     if (!canEdit || !currentUser) return;
 
-    const parsedStartDate = startDate ? new Date(startDate) : new Date();
-    const parsedDueDate = dueDate ? new Date(dueDate) : null;
+    const parsedStartDate = parseLocalDate(startDate) || new Date();
+    const parsedDueDate = parseLocalDate(dueDate);
 
     if (parsedDueDate && parsedStartDate > parsedDueDate) return;
 
@@ -437,7 +446,6 @@ export function TaskModal({ task, columnId, onClose, mode: initialMode }: TaskMo
                     </div>
                   </div>
 
-                  {/* fase 2: agora aparece também na edição */}
                   {canEdit && (
                     <div>
                       <label className="mb-2 block text-sm font-medium text-gray-700">

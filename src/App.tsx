@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { Login } from './components/Login';
 import { Layout } from './components/Layout';
@@ -8,45 +8,54 @@ import { ValidationPage } from './components/ValidationPage';
 import { Reports } from './components/Reports';
 import Calendar from './components/Calendar';
 
-function AppContent() {
-  const { isLoggedIn, authLoading } = useApp();
-  const [currentPage, setCurrentPage] = useState('dashboard');
+type PageKey = 'dashboard' | 'calendar' | 'team' | 'validation' | 'reports';
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
-        <div className="text-center space-y-3">
-          <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-400 rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-slate-300">Validando autenticação e permissões...</p>
+function AppLoadingScreen() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-slate-950 px-4 text-white">
+      <div className="space-y-4 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500/20 border-t-blue-400" />
+        </div>
+
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold text-white">TaskFlow</h1>
+          <p className="text-sm text-slate-300">
+            Validando autenticação e permissões...
+          </p>
         </div>
       </div>
-    );
+    </div>
+  );
+}
+
+function AppContent() {
+  const { isLoggedIn, authLoading } = useApp();
+  const [currentPage, setCurrentPage] = useState<PageKey>('dashboard');
+
+  const currentView = useMemo(() => {
+    const pages: Record<PageKey, JSX.Element> = {
+      dashboard: <KanbanBoard />,
+      calendar: <Calendar />,
+      team: <TeamManagement />,
+      validation: <ValidationPage />,
+      reports: <Reports />,
+    };
+
+    return pages[currentPage] ?? pages.dashboard;
+  }, [currentPage]);
+
+  if (authLoading) {
+    return <AppLoadingScreen />;
   }
 
   if (!isLoggedIn) {
     return <Login />;
   }
 
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <KanbanBoard />;
-      case 'calendar':
-        return <Calendar />;
-      case 'team':
-        return <TeamManagement />;
-      case 'validation':
-        return <ValidationPage />;
-      case 'reports':
-        return <Reports />;
-      default:
-        return <KanbanBoard />;
-    }
-  };
-
   return (
-    <Layout currentPage={currentPage} onPageChange={setCurrentPage}>
-      {renderPage()}
+    <Layout currentPage={currentPage} onPageChange={(page) => setCurrentPage(page as PageKey)}>
+      {currentView}
     </Layout>
   );
 }

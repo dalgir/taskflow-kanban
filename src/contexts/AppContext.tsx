@@ -23,6 +23,8 @@ interface AppContextType extends AppState {
   login: (email: string, password?: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   addTask: (task: Omit<Task, 'id' | 'createdAt'>) => void;
+  addTaskCopies: (task: Omit<Task, 'id' | 'createdAt'>, assigneeIds: string[]) => void;
+  duplicateTask: (taskId: string) => void;
   updateTask: (taskId: string, updates: Partial<Task>) => void;
   deleteTask: (taskId: string) => void;
   moveTask: (taskId: string, newColumnId: string) => void;
@@ -79,8 +81,26 @@ const getInitialColumns = (members: TeamMember[]): Column[] => [
   { id: 'completed', title: 'Concluídas', type: 'completed' },
 ];
 
+const resolveColumnIdForAssignee = (assigneeId: string | null) => {
+  return assigneeId ? `member-${assigneeId}` : 'backlog';
+};
+
+const cloneChecklist = (checklist: Task['checklist']): Task['checklist'] => {
+  return checklist.map(item => ({
+    ...item,
+    id: generateId(),
+    completed: false,
+  }));
+};
+
+const cloneAttachments = (attachments: Task['attachments']): Task['attachments'] => {
+  return attachments.map(item => ({
+    ...item,
+    id: generateId(),
+  }));
+};
+
 const defaultTasks: Task[] = [
-  // Tarefas para Ana Silva (member-1)
   {
     id: '1',
     title: 'Revisar relatório mensal',
@@ -146,7 +166,6 @@ const defaultTasks: Task[] = [
     createdAt: new Date(),
     createdBy: '1',
   },
-  // Tarefas para Carlos Santos (member-2)
   {
     id: '2',
     title: 'Atualizar documentação',
@@ -195,7 +214,6 @@ const defaultTasks: Task[] = [
     createdAt: new Date(),
     createdBy: '1',
   },
-  // Tarefas para Maria Oliveira (member-3)
   {
     id: '3',
     title: 'Criar mockups dashboard',
@@ -244,7 +262,6 @@ const defaultTasks: Task[] = [
     createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
     createdBy: '1',
   },
-  // Tarefas para João Costa (member-4)
   {
     id: '5',
     title: 'Análise de métricas',
@@ -278,7 +295,6 @@ const defaultTasks: Task[] = [
     createdAt: new Date(),
     createdBy: '1',
   },
-  // Tarefas no backlog
   {
     id: '4',
     title: 'Reunião de alinhamento',
@@ -339,7 +355,6 @@ const defaultTasks: Task[] = [
     createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
     createdBy: '1',
   },
-  // Tarefas concluídas
   {
     id: '17',
     title: 'Relatório semanal',
@@ -377,7 +392,6 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
     const stored = localStorage.getItem(key);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Convert date strings back to Date objects
       if (Array.isArray(parsed)) {
         return parsed.map((item: any) => ({
           ...item,
@@ -429,13 +443,13 @@ const canManageTask = (user: TeamMember | null, task: Task): boolean => {
 };
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => 
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() =>
     sortTeamMembers(loadFromStorage('teamMembers', defaultTeamMembers).map(normalizeMember))
   );
-  const [tasks, setTasks] = useState<Task[]>(() => 
+  const [tasks, setTasks] = useState<Task[]>(() =>
     loadFromStorage('tasks', defaultTasks)
   );
-  const [columns, setColumns] = useState<Column[]>(() => 
+  const [columns, setColumns] = useState<Column[]>(() =>
     getInitialColumns(teamMembers)
   );
   const [notifications, setNotifications] = useState<Notification[]>(() =>
@@ -653,6 +667,98 @@ export function AppProvider({ children }: { children: ReactNode }) {
         message: `Nova tarefa atribuída: ${newTask.title}`,
         type: 'assignment',
         taskId: newTask.id,
+        read: false,
+      });
+    }
+  };
+
+  const addTaskCopies = (task: Omit<Task, 'id' | 'createdAt'>, assigneeIds: string[]) => {
+    if (!currentUser) return;
+
+    const uniqueAssigneeIds = [...new Set(assigneeIds.filter(Boolean))];
+    if (uniqueAssigneeIds.length === 0) {
+      addTask(task);
+      return;
+    }
+
+    const isAllowed =
+      currentUser.isAdmin || uniqueAssigneeIds.every(assigneeId => assigneeId === currentUser.id);
+
+    if (!isAllowed) return;
+
+    const createdTasks: Task[] = uniqueAssigneeIds.map(assigneeId => ({
+      ...task,
+      id: generateId(),
+      createdAt: new Date(),
+      createdBy: task.createdBy || currentUser.id,
+      assigneeId,
+      columnId: resolveColumnIdForAssignee(assigneeId),
+      status: 'planned',
+      validationStatus: undefined,
+      validationComment: undefined,
+      comments: [],
+      checklist: cloneChecklist(task.checklist),
+      attachments: cloneAttachments(task.attachments),
+    }));
+
+    setTasks(prev => [...prev, ...createdTasks]);
+
+    if (firebaseEnabled) {
+      void Promise.all(
+        createdTasks.map(createdTask => databaseService.saveTask(createdTask))
+      ).catch(error => {
+        console.error('Erro ao salvar cópias da tarefa:', error);
+      });
+    }
+
+    createdTasks.forEach(createdTask => {
+      if (createdTask.assigneeId) {
+        addNotification({
+          userId: createdTask.assigneeId,
+          message: `Nova tarefa atribuída: ${createdTask.title}`,
+          type: 'assignment',
+          taskId: createdTask.id,
+          read: false,
+        });
+      }
+    });
+  };
+
+  const duplicateTask = (taskId: string) => {
+    if (!currentUser) return;
+
+    const originalTask = tasks.find(task => task.id === taskId);
+    if (!originalTask || !canManageTask(currentUser, originalTask)) return;
+
+    const duplicatedTask: Task = {
+      ...originalTask,
+      id: generateId(),
+      createdAt: new Date(),
+      createdBy: currentUser.id,
+      title: `${originalTask.title} (Cópia)`,
+      status: 'planned',
+      validationStatus: undefined,
+      validationComment: undefined,
+      comments: [],
+      checklist: cloneChecklist(originalTask.checklist),
+      attachments: cloneAttachments(originalTask.attachments),
+      columnId: resolveColumnIdForAssignee(originalTask.assigneeId),
+    };
+
+    setTasks(prev => [...prev, duplicatedTask]);
+
+    if (firebaseEnabled) {
+      void databaseService.saveTask(duplicatedTask).catch(error => {
+        console.error('Erro ao duplicar tarefa:', error);
+      });
+    }
+
+    if (duplicatedTask.assigneeId) {
+      addNotification({
+        userId: duplicatedTask.assigneeId,
+        message: `Nova tarefa atribuída: ${duplicatedTask.title}`,
+        type: 'assignment',
+        taskId: duplicatedTask.id,
         read: false,
       });
     }
@@ -972,6 +1078,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       addTask,
+      addTaskCopies,
+      duplicateTask,
       updateTask,
       deleteTask,
       moveTask,

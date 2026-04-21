@@ -2,10 +2,10 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task } from '../types';
 import { useApp } from '../contexts/AppContext';
-import { 
-  Calendar, 
-  CheckSquare, 
-  MessageSquare, 
+import {
+  Calendar,
+  CheckSquare,
+  MessageSquare,
   Paperclip,
   Clock,
   AlertCircle,
@@ -26,7 +26,6 @@ interface TaskCardProps {
   onClick: () => void;
 }
 
-// Configuração das etiquetas de status com cores
 const getStatusConfig = (status: string) => {
   switch (status) {
     case 'planned':
@@ -34,7 +33,7 @@ const getStatusConfig = (status: string) => {
         bgColor: 'bg-slate-500',
         lightBg: 'bg-slate-100',
         textColor: 'text-slate-700',
-        borderColor: 'border-slate-400',
+        borderColor: 'border-slate-300',
         label: 'Planejada',
         icon: Circle,
         stripColor: 'bg-slate-400'
@@ -44,7 +43,7 @@ const getStatusConfig = (status: string) => {
         bgColor: 'bg-yellow-500',
         lightBg: 'bg-yellow-50',
         textColor: 'text-yellow-700',
-        borderColor: 'border-yellow-400',
+        borderColor: 'border-yellow-300',
         label: 'Em Andamento',
         icon: Loader2,
         stripColor: 'bg-yellow-400'
@@ -54,7 +53,7 @@ const getStatusConfig = (status: string) => {
         bgColor: 'bg-orange-500',
         lightBg: 'bg-orange-50',
         textColor: 'text-orange-700',
-        borderColor: 'border-orange-400',
+        borderColor: 'border-orange-300',
         label: 'Aguardando Validação',
         icon: Timer,
         stripColor: 'bg-orange-400'
@@ -64,7 +63,7 @@ const getStatusConfig = (status: string) => {
         bgColor: 'bg-green-500',
         lightBg: 'bg-green-50',
         textColor: 'text-green-700',
-        borderColor: 'border-green-400',
+        borderColor: 'border-green-300',
         label: 'Concluída',
         icon: CheckCircle2,
         stripColor: 'bg-green-500'
@@ -74,8 +73,8 @@ const getStatusConfig = (status: string) => {
         bgColor: 'bg-emerald-600',
         lightBg: 'bg-emerald-50',
         textColor: 'text-emerald-700',
-        borderColor: 'border-emerald-400',
-        label: 'Aprovada ✓',
+        borderColor: 'border-emerald-300',
+        label: 'Aprovada',
         icon: Award,
         stripColor: 'bg-emerald-600'
       };
@@ -84,7 +83,7 @@ const getStatusConfig = (status: string) => {
         bgColor: 'bg-gray-500',
         lightBg: 'bg-gray-100',
         textColor: 'text-gray-700',
-        borderColor: 'border-gray-400',
+        borderColor: 'border-gray-300',
         label: 'Pendente',
         icon: Circle,
         stripColor: 'bg-gray-400'
@@ -96,7 +95,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   const { teamMembers, isAdmin, deleteTask } = useApp();
   const assignee = teamMembers.find(m => m.id === task.assigneeId);
   const userIsAdmin = isAdmin();
-  
+
   const {
     attributes,
     listeners,
@@ -117,42 +116,47 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   const statusConfig = getStatusConfig(task.status);
   const StatusIcon = statusConfig.icon;
 
-  // Verificar se está atrasada
-  const isOverdue = task.dueDate && isPast(new Date(task.dueDate)) && 
-    task.status !== 'completed' && task.status !== 'approved';
+  const isOverdue =
+    task.dueDate &&
+    isPast(new Date(task.dueDate)) &&
+    task.status !== 'completed' &&
+    task.status !== 'approved';
 
   const getStartDateInfo = () => {
     if (!task.startDate) return null;
-    
+
     const date = new Date(task.startDate);
     const text = format(date, 'dd/MM', { locale: ptBR });
-    
+
     return { text };
   };
 
   const getDueDateInfo = () => {
     if (!task.dueDate) return null;
-    
+
     const date = new Date(task.dueDate);
-    const overdue = isPast(date) && task.status !== 'completed' && task.status !== 'approved';
+    const overdue =
+      isPast(date) &&
+      task.status !== 'completed' &&
+      task.status !== 'approved';
     const isDueToday = isToday(date);
     const isDueTomorrow = isTomorrow(date);
 
     let text = format(date, 'dd/MM', { locale: ptBR });
-    let className = 'text-gray-500';
+    let className = 'text-gray-600 bg-gray-100';
     let Icon = Calendar;
 
     if (overdue) {
       text = 'Atrasada';
-      className = 'text-red-600 bg-red-50';
+      className = 'text-red-700 bg-red-50';
       Icon = AlertCircle;
     } else if (isDueToday) {
       text = 'Hoje';
-      className = 'text-orange-600 bg-orange-50';
+      className = 'text-orange-700 bg-orange-50';
       Icon = Clock;
     } else if (isDueTomorrow) {
       text = 'Amanhã';
-      className = 'text-yellow-600 bg-yellow-50';
+      className = 'text-yellow-700 bg-yellow-50';
       Icon = Clock;
     }
 
@@ -170,141 +174,160 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
       {...listeners}
       onClick={onClick}
       className={cn(
-        "bg-white rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:shadow-md transition-all overflow-hidden group",
-        "w-full min-h-[100px]",
-        isDragging && "opacity-50 shadow-lg rotate-2",
-        isOverdue && "ring-2 ring-red-300"
+        'group relative w-full cursor-pointer overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-200',
+        'min-h-[132px] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.995]',
+        isDragging && 'rotate-2 opacity-60 shadow-xl',
+        isOverdue && 'ring-2 ring-red-200 border-red-200'
       )}
     >
-      {/* Barra de cor no topo - Etiqueta de Status */}
-      <div className={cn("h-2 w-full", statusConfig.stripColor)} />
-      
-      <div className="p-2.5 relative">
-        {/* Botão Excluir - apenas para admin */}
-        {userIsAdmin && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm('Deseja realmente excluir esta tarefa?')) {
-                deleteTask(task.id);
-              }
-            }}
-            className="absolute -top-1 -right-1 p-1 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity z-10"
-            title="Excluir tarefa"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        )}
+      {/* Barra superior de status */}
+      <div className={cn('h-1.5 w-full', statusConfig.stripColor)} />
 
-        {/* Etiqueta de Status Principal */}
-        <div className="flex items-center gap-1 mb-2 flex-wrap">
-          <div className={cn(
-            "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border",
-            statusConfig.lightBg,
-            statusConfig.textColor,
-            statusConfig.borderColor
-          )}>
-            <StatusIcon className={cn(
-              "w-2.5 h-2.5",
-              task.status === 'in_progress' && "animate-spin"
-            )} />
-            <span className="uppercase tracking-wide">{statusConfig.label}</span>
+      {/* Botão excluir */}
+      {userIsAdmin && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm('Deseja realmente excluir esta tarefa?')) {
+              deleteTask(task.id);
+            }
+          }}
+          className={cn(
+            'absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-md transition',
+            'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-600'
+          )}
+          title="Excluir tarefa"
+          aria-label="Excluir tarefa"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+
+      <div className="p-3.5 sm:p-4">
+        {/* Status */}
+        <div className="mb-2 flex items-center gap-2 flex-wrap pr-10">
+          <div
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] sm:text-[11px] font-semibold',
+              statusConfig.lightBg,
+              statusConfig.textColor,
+              statusConfig.borderColor
+            )}
+          >
+            <StatusIcon
+              className={cn(
+                'h-3.5 w-3.5',
+                task.status === 'in_progress' && 'animate-spin'
+              )}
+            />
+            <span className="leading-none">{statusConfig.label}</span>
           </div>
-          
-          {/* Indicador de Atrasada */}
+
           {isOverdue && (
-            <div className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-500 text-white rounded-full text-[8px] font-bold animate-pulse">
-              <AlertCircle className="w-2.5 h-2.5" />
-              <span>ATRASADA</span>
+            <div className="inline-flex items-center gap-1 rounded-full bg-red-500 px-2 py-1 text-[10px] font-semibold text-white">
+              <AlertCircle className="h-3.5 w-3.5" />
+              <span>Atrasada</span>
             </div>
           )}
         </div>
 
-        {/* Title */}
-        <h4 className="font-semibold text-gray-800 text-[11px] mb-1 line-clamp-2 leading-snug">
+        {/* Título */}
+        <h4 className="mb-1.5 line-clamp-2 text-sm sm:text-[15px] font-semibold leading-5 text-gray-800">
           {task.title}
         </h4>
 
-        {/* Description preview */}
+        {/* Descrição */}
         {task.description && (
-          <p className="text-[9px] text-gray-500 mb-2 line-clamp-1">
+          <p className="mb-3 line-clamp-2 text-xs sm:text-[13px] leading-4 text-gray-500">
             {task.description}
           </p>
         )}
 
-        {/* Datas: Início → Prazo */}
+        {/* Datas */}
         {(startDateInfo || dueDateInfo) && (
-          <div className="flex items-center gap-1 mb-2 text-[9px]">
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
             {startDateInfo && (
-              <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-green-700 font-medium">
-                <Calendar className="w-2.5 h-2.5" />
+              <div className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 font-medium text-green-700">
+                <Calendar className="h-3.5 w-3.5" />
                 <span>Início: {startDateInfo.text}</span>
               </div>
             )}
-            {startDateInfo && dueDateInfo && (
-              <span className="text-gray-400">→</span>
-            )}
+
             {dueDateInfo && (
-              <div className={cn(
-                "flex items-center gap-0.5 px-1.5 py-0.5 rounded font-medium",
-                dueDateInfo.className || "bg-red-50 text-red-700"
-              )}>
-                <dueDateInfo.Icon className="w-2.5 h-2.5" />
+              <div
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-lg px-2 py-1 font-medium',
+                  dueDateInfo.className
+                )}
+              >
+                <dueDateInfo.Icon className="h-3.5 w-3.5" />
                 <span>Prazo: {dueDateInfo.text}</span>
               </div>
             )}
           </div>
         )}
 
-        {/* Meta info */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {/* Checklist */}
+        {/* Metadados */}
+        <div className="flex flex-wrap items-center gap-2">
           {totalChecklist > 0 && (
-            <div className={cn(
-              "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium",
-              completedChecklist === totalChecklist 
-                ? "text-green-600 bg-green-50" 
-                : "text-gray-500 bg-gray-100"
-            )}>
-              <CheckSquare className="w-2.5 h-2.5" />
+            <div
+              className={cn(
+                'inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium',
+                completedChecklist === totalChecklist
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-gray-100 text-gray-600'
+              )}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
               <span>{completedChecklist}/{totalChecklist}</span>
             </div>
           )}
 
-          {/* Comments */}
           {task.comments.length > 0 && (
-            <div className="flex items-center gap-0.5 text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded text-[9px] font-medium">
-              <MessageSquare className="w-2.5 h-2.5" />
+            <div className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600">
+              <MessageSquare className="h-3.5 w-3.5" />
               <span>{task.comments.length}</span>
             </div>
           )}
 
-          {/* Attachments */}
           {task.attachments.length > 0 && (
-            <div className="flex items-center gap-0.5 text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded text-[9px] font-medium">
-              <Paperclip className="w-2.5 h-2.5" />
+            <div className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600">
+              <Paperclip className="h-3.5 w-3.5" />
               <span>{task.attachments.length}</span>
             </div>
           )}
         </div>
 
-        {/* Assignee + Lock indicator */}
-        <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-          {assignee && (
-            <div className="flex items-center gap-1.5">
-              <div className="w-5 h-5 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center text-[10px] shadow-sm border border-gray-200 overflow-hidden">
+        {/* Rodapé */}
+        <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3">
+          {assignee ? (
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-gradient-to-br from-blue-100 to-indigo-100 text-xs shadow-sm">
                 {assignee.avatarUrl ? (
-                  <img src={assignee.avatarUrl} alt={assignee.name} className="w-full h-full object-cover" />
+                  <img
+                    src={assignee.avatarUrl}
+                    alt={assignee.name}
+                    className="h-full w-full object-cover"
+                  />
                 ) : (
                   assignee.avatar
                 )}
               </div>
-              <span className="text-[9px] text-gray-600 font-medium truncate">{assignee.name}</span>
+
+              <span className="truncate text-xs sm:text-[13px] font-medium text-gray-700">
+                {assignee.name}
+              </span>
             </div>
+          ) : (
+            <span className="text-xs text-gray-400">Sem responsável</span>
           )}
+
           {!userIsAdmin && (
-            <div className="flex items-center gap-0.5 text-gray-400" title="Apenas administradores podem editar">
-              <Lock className="w-3 h-3" />
+            <div
+              className="inline-flex items-center gap-1 text-gray-400"
+              title="Apenas administradores podem editar"
+            >
+              <Lock className="h-3.5 w-3.5" />
             </div>
           )}
         </div>
@@ -315,15 +338,22 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
 
 export function TaskCardSkeleton() {
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden animate-pulse">
-      <div className="h-2 bg-gray-300 w-full" />
-      <div className="p-3">
-        <div className="h-6 bg-gray-200 rounded-full w-24 mb-2" />
-        <div className="h-4 bg-gray-200 rounded w-full mb-2" />
-        <div className="h-3 bg-gray-200 rounded w-3/4 mb-3" />
-        <div className="flex gap-2">
-          <div className="h-5 bg-gray-200 rounded w-12" />
-          <div className="h-5 bg-gray-200 rounded w-8" />
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm animate-pulse">
+      <div className="h-1.5 w-full bg-gray-300" />
+      <div className="p-4">
+        <div className="mb-3 h-6 w-28 rounded-full bg-gray-200" />
+        <div className="mb-2 h-4 w-full rounded bg-gray-200" />
+        <div className="mb-3 h-4 w-4/5 rounded bg-gray-200" />
+        <div className="mb-4 flex gap-2">
+          <div className="h-7 w-16 rounded-lg bg-gray-200" />
+          <div className="h-7 w-12 rounded-lg bg-gray-200" />
+        </div>
+        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-full bg-gray-200" />
+            <div className="h-3 w-20 rounded bg-gray-200" />
+          </div>
+          <div className="h-3 w-3 rounded bg-gray-200" />
         </div>
       </div>
     </div>

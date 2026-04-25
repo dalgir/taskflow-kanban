@@ -7,14 +7,16 @@ import {
   X,
   Stethoscope,
   ThermometerSun,
+  Users,
+  Palmtree,
+  User,
+  HelpCircle,
+  Trash2,
   Handshake,
   Globe2,
   Cake,
-  Palmtree,
   Scale,
-  User,
-  Circle,
-  Trash2
+  Circle
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { AbsenceEvent, AbsenceType } from '../types';
@@ -92,6 +94,17 @@ const absenceTypeConfig: Record<
     bgColor: 'bg-gray-100 border-gray-300',
     icon: Circle
   }
+};
+
+const getAbsenceConfig = (type: AbsenceType | 'sick' | 'meeting') => {
+  const legacyTypeMap: Record<string, AbsenceType> = {
+    sick: 'medical_leave',
+    meeting: 'external_meeting'
+  };
+
+  const normalizedType = legacyTypeMap[type] || type;
+
+  return absenceTypeConfig[normalizedType as AbsenceType] || absenceTypeConfig.other;
 };
 
 export default function Calendar() {
@@ -232,10 +245,7 @@ export default function Calendar() {
 
       {/* Legenda */}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-gray-600">
-          Legenda sugerida:
-        </h3>
-
+        <h3 className="mb-3 text-sm font-semibold text-gray-600">Legenda sugerida:</h3>
         <div className="flex flex-wrap gap-2.5">
           {Object.entries(absenceTypeConfig).map(([type, config]) => {
             const Icon = config.icon;
@@ -330,7 +340,7 @@ export default function Calendar() {
                   <div className="space-y-1">
                     {dayEvents.slice(0, 2).map(event => {
                       const member = getMemberById(event.memberId);
-                      const config = absenceTypeConfig[event.type];
+                      const config = getAbsenceConfig(event.type);
 
                       return (
                         <div
@@ -400,7 +410,7 @@ export default function Calendar() {
                 <div className="space-y-3">
                   {selectedDateEvents.map(event => {
                     const member = getMemberById(event.memberId);
-                    const config = absenceTypeConfig[event.type];
+                    const config = getAbsenceConfig(event.type);
                     const Icon = config.icon;
 
                     return (
@@ -504,7 +514,7 @@ export default function Calendar() {
             <div className="space-y-2">
               {upcomingEvents.map(event => {
                 const member = getMemberById(event.memberId);
-                const config = absenceTypeConfig[event.type];
+                const config = getAbsenceConfig(event.type);
 
                 return (
                   <button

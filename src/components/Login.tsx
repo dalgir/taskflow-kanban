@@ -258,6 +258,8 @@ export function Login() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+
   const activeMembers = teamMembers.filter((member) => member.isActive !== false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -292,6 +294,20 @@ export function Login() {
         ? 'O acesso rápido agora apenas preenche o e-mail. Informe a senha para concluir a autenticação.'
         : 'Modo local ativo. Configure o Firebase para habilitar autenticação segura com senha.'
     );
+  };
+
+  const handleSelectMember = (member: TeamMember) => {
+    setEmail(member.email);
+    handleQuickLogin();
+
+    setTimeout(() => {
+      passwordInputRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+
+      passwordInputRef.current?.focus();
+    }, 250);
   };
 
   return (
@@ -422,10 +438,7 @@ export function Login() {
                   <LiquidButton
                     key={member.id}
                     member={member}
-                    onClick={() => {
-                      setEmail(member.email);
-                      handleQuickLogin();
-                    }}
+                    onClick={() => handleSelectMember(member)}
                   />
                 ))}
               </div>
@@ -463,6 +476,7 @@ export function Login() {
                   Senha
                 </label>
                 <input
+                  ref={passwordInputRef}
                   type="password"
                   id="password"
                   value={password}

@@ -7,10 +7,13 @@ import {
   X,
   Stethoscope,
   ThermometerSun,
-  Users,
+  Handshake,
+  Globe2,
+  Cake,
   Palmtree,
+  Scale,
   User,
-  HelpCircle,
+  Circle,
   Trash2
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
@@ -41,23 +44,41 @@ const absenceTypeConfig: Record<
     bgColor: 'bg-blue-100 border-blue-300',
     icon: Stethoscope
   },
-  sick: {
-    label: 'Doença',
+  medical_leave: {
+    label: 'Licença Médica',
     color: 'text-red-700',
     bgColor: 'bg-red-100 border-red-300',
     icon: ThermometerSun
   },
-  meeting: {
+  internal_meeting: {
+    label: 'Reunião Interna',
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-100 border-amber-300',
+    icon: Handshake
+  },
+  external_meeting: {
     label: 'Reunião Externa',
     color: 'text-purple-700',
     bgColor: 'bg-purple-100 border-purple-300',
-    icon: Users
+    icon: Globe2
+  },
+  birthday: {
+    label: 'Aniversário',
+    color: 'text-pink-700',
+    bgColor: 'bg-pink-100 border-pink-300',
+    icon: Cake
   },
   vacation: {
     label: 'Férias',
     color: 'text-green-700',
     bgColor: 'bg-green-100 border-green-300',
     icon: Palmtree
+  },
+  tre: {
+    label: 'TRE',
+    color: 'text-slate-700',
+    bgColor: 'bg-slate-100 border-slate-300',
+    icon: Scale
   },
   personal: {
     label: 'Assunto Pessoal',
@@ -69,7 +90,7 @@ const absenceTypeConfig: Record<
     label: 'Outros',
     color: 'text-gray-700',
     bgColor: 'bg-gray-100 border-gray-300',
-    icon: HelpCircle
+    icon: Circle
   }
 };
 
@@ -211,7 +232,10 @@ export default function Calendar() {
 
       {/* Legenda */}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-gray-600">Legenda</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gray-600">
+          Legenda sugerida:
+        </h3>
+
         <div className="flex flex-wrap gap-2.5">
           {Object.entries(absenceTypeConfig).map(([type, config]) => {
             const Icon = config.icon;

@@ -1,4 +1,9 @@
-export type TaskStatus = 'planned' | 'in_progress' | 'awaiting_validation' | 'completed' | 'approved';
+export type TaskStatus =
+  | 'planned'
+  | 'in_progress'
+  | 'awaiting_validation'
+  | 'completed'
+  | 'approved';
 
 export interface ChecklistItem {
   id: string;
@@ -25,14 +30,14 @@ export interface Task {
   title: string;
   description: string;
   assigneeId: string | null;
-  startDate: Date | null; // Data de início da tarefa
-  dueDate: Date | null; // Data de prazo (deadline)
+  startDate: Date | null;
+  dueDate: Date | null;
   status: TaskStatus;
   checklist: ChecklistItem[];
   comments: Comment[];
   attachments: Attachment[];
   columnId: string;
-  createdAt: Date; // Data de criação (automática)
+  createdAt: Date;
   createdBy: string;
   validationComment?: string;
   validationStatus?: 'approved' | 'needs_adjustment';
@@ -43,7 +48,7 @@ export interface TeamMember {
   name: string;
   role: string;
   avatar: string;
-  avatarUrl?: string; // URL da foto do membro (base64 ou URL externa)
+  avatarUrl?: string;
   email: string;
   isAdmin: boolean;
   firebaseUid?: string;
@@ -73,7 +78,17 @@ export interface WeekInfo {
   title: string;
 }
 
-export type AbsenceType = 'medical' | 'sick' | 'meeting' | 'vacation' | 'personal' | 'other';
+/* 🔥 ATUALIZAÇÃO AQUI */
+export type AbsenceType =
+  | 'medical'
+  | 'medical_leave'
+  | 'internal_meeting'
+  | 'external_meeting'
+  | 'birthday'
+  | 'vacation'
+  | 'tre'
+  | 'personal'
+  | 'other';
 
 export interface AbsenceEvent {
   id: string;

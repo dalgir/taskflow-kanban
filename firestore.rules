@@ -1,10 +1,23 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    /*
+     * ========================================
+     * AUTENTICAÇÃO
+     * ========================================
+     */
+
     function signedIn() {
       return request.auth != null;
     }
 
+    /*
+     * O cadastro do membro fica em:
+     *
+     * teamMembers/{UID_DO_FIREBASE}
+     */
     function memberPath() {
       return /databases/$(database)/documents/teamMembers/$(request.auth.uid);
     }
@@ -17,41 +30,122 @@ service cloud.firestore {
       return memberDoc().data;
     }
 
+    /*
+     * ========================================
+     * MEMBRO ATIVO
+     * ========================================
+     *
+     * Para entrar no TaskFlow:
+     *
+     * 1. precisa estar autenticado;
+     * 2. precisa existir em teamMembers/{UID};
+     * 3. precisa estar ativo;
+     * 4. o e-mail precisa ser o mesmo
+     *    do Firebase Authentication;
+     * 5. se firebaseUid existir no documento,
+     *    ele precisa ser igual ao UID autenticado.
+     */
     function activeMember() {
       return signedIn()
         && exists(memberPath())
         && memberData().isActive == true
-        && memberData().email == request.auth.token.email;
+        && memberData().email == request.auth.token.email
+        && (
+          !('firebaseUid' in memberData())
+          || memberData().firebaseUid == request.auth.uid
+        );
     }
+
+    /*
+     * ========================================
+     * ADMINISTRADOR
+     * ========================================
+     */
 
     function isAdmin() {
-      return activeMember() && memberData().isAdmin == true;
+      return activeMember()
+        && memberData().isAdmin == true;
     }
+
+    /*
+     * ========================================
+     * PRÓPRIO USUÁRIO
+     * ========================================
+     */
 
     function isSelf(userId) {
-      return activeMember() && request.auth.uid == userId;
+      return activeMember()
+        && request.auth.uid == userId;
     }
 
+    /*
+     * Compara o ID INTERNO do TaskFlow.
+     *
+     * Exemplo:
+     *
+     * Neuma:
+     * UID Firebase = KeZeb...
+     * id interno = "4"
+     */
     function isSelfByMemberId(memberId) {
-      return activeMember() && memberData().id == memberId;
+      return activeMember()
+        && memberData().id == memberId;
     }
+
+    /*
+     * ========================================
+     * STATUS DE TAREFAS
+     * ========================================
+     */
 
     function validTaskStatus(status) {
-      return status in ['planned', 'in_progress', 'awaiting_validation', 'completed', 'approved'];
+      return status in [
+        'planned',
+        'in_progress',
+        'awaiting_validation',
+        'completed',
+        'approved'
+      ];
     }
 
+    /*
+     * ========================================
+     * VALIDAÇÃO DOS DADOS DA TAREFA
+     * ========================================
+     */
+
     function validTaskPayload(data) {
-      return data.keys().hasAll(['id', 'title', 'description', 'status', 'columnId', 'createdAt', 'createdBy'])
+      return data.keys().hasAll([
+          'id',
+          'title',
+          'description',
+          'status',
+          'columnId',
+          'createdAt',
+          'createdBy'
+        ])
+
         && data.id is string
+
         && data.title is string
         && data.title.size() > 0
         && data.title.size() <= 150
+
         && data.description is string
         && data.description.size() <= 5000
+
         && validTaskStatus(data.status)
+
         && data.columnId is string
+
         && data.createdBy is string;
     }
+
+    /*
+     * ========================================
+     * LEITURA DE TAREFAS
+     * ========================================
+     */
 
     function canReadTask(data) {
       return isAdmin()
@@ -59,89 +153,451 @@ service cloud.firestore {
         || data.createdBy == memberData().id;
     }
 
+    /*
+     * ========================================
+     * ALTERAÇÃO DE TAREFAS
+     * ========================================
+     */
+
     function canWriteTask(data) {
       return isAdmin()
         || data.assigneeId == memberData().id
         || data.createdBy == memberData().id;
     }
 
+    /*
+     * ========================================
+     * MEMBROS
+     * ========================================
+     *
+     * Estrutura:
+     *
+     * teamMembers/
+     *    UID_FIREBASE
+     *
+     * Documento:
+     *
+     * {
+     *   id: "4",
+     *   firebaseUid: "UID_FIREBASE",
+     *   email: "neuma@empresa.com",
+     *   name: "Neuma Calixto",
+     *   isAdmin: false,
+     *   isActive: true
+     * }
+     */
+
     match /teamMembers/{userId} {
-      allow read: if activeMember();
 
+  /*
+   * O próprio usuário pode ler
+   * seu documento usando o UID.
+   *
+   * Administradores também podem
+   * consultar os membros.
+   */
+  allow read: if signedIn()
+    && (
+      request.auth.uid == userId
+      || isAdmin()
+    );
+      /*
+       * ====================================
+       * CRIAR MEMBRO
+       * ====================================
+       *
+       * Apenas administrador pode criar.
+       *
+       * Existem dois casos possíveis:
+       *
+       * 1. membro ainda sem UID:
+       *    documento pode usar o id interno;
+       *
+       * 2. membro já possui Firebase UID:
+       *    documento deve usar esse UID.
+       */
       allow create: if isAdmin()
-        && request.resource.data.id == userId
+
+        && request.resource.data.id is string
+
         && request.resource.data.email is string
+
         && request.resource.data.isAdmin is bool
-        && request.resource.data.isActive is bool;
 
-      allow update: if (isAdmin() || isSelf(userId))
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.email == resource.data.email
-        && (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin);
+        && request.resource.data.isActive is bool
 
-      allow delete: if isAdmin() && !isSelf(userId);
-    }
-
-    match /tasks/{taskId} {
-      allow read: if activeMember() && canReadTask(resource.data);
-
-      allow create: if activeMember()
-        && validTaskPayload(request.resource.data)
-        && request.resource.data.id == taskId
-        && canWriteTask(request.resource.data);
-
-      allow update: if activeMember()
-        && validTaskPayload(request.resource.data)
-        && request.resource.data.id == resource.data.id
-        && canWriteTask(resource.data)
-        && canWriteTask(request.resource.data)
         && (
-          isAdmin()
-          || (
-            request.resource.data.createdBy == resource.data.createdBy
-            && request.resource.data.validationStatus == resource.data.validationStatus
-            && request.resource.data.validationComment == resource.data.validationComment
+          request.resource.data.id == userId
+
+          ||
+
+          (
+            ('firebaseUid' in request.resource.data)
+
+            && request.resource.data.firebaseUid is string
+
+            && request.resource.data.firebaseUid == userId
           )
         );
 
+      /*
+       * ====================================
+       * ATUALIZAR MEMBRO
+       * ====================================
+       */
+
+      allow update: if
+
+        /*
+         * ADMINISTRADOR
+         *
+         * Pode alterar:
+         * nome
+         * função
+         * avatar
+         * status ativo
+         * etc.
+         *
+         * Mas não pode trocar o ID interno
+         * nem o e-mail original.
+         */
+        (
+          isAdmin()
+
+          && request.resource.data.id
+            == resource.data.id
+
+          && request.resource.data.email
+            == resource.data.email
+
+          && (
+            !('firebaseUid' in resource.data)
+
+            ||
+
+            (
+              ('firebaseUid' in request.resource.data)
+
+              && request.resource.data.firebaseUid
+                == resource.data.firebaseUid
+            )
+          )
+        )
+
+        ||
+
+        /*
+         * PRÓPRIO MEMBRO
+         *
+         * Pode atualizar dados permitidos,
+         * mas não pode:
+         *
+         * - trocar ID;
+         * - trocar e-mail;
+         * - virar administrador;
+         * - ativar/desativar a própria conta;
+         * - trocar firebaseUid.
+         */
+        (
+          isSelf(userId)
+
+          && request.resource.data.id
+            == resource.data.id
+
+          && request.resource.data.email
+            == resource.data.email
+
+          && request.resource.data.isAdmin
+            == resource.data.isAdmin
+
+          && request.resource.data.isActive
+            == resource.data.isActive
+
+          && (
+            (
+              !('firebaseUid' in resource.data)
+
+              && (
+                !('firebaseUid' in request.resource.data)
+
+                ||
+
+                request.resource.data.firebaseUid
+                  == request.auth.uid
+              )
+            )
+
+            ||
+
+            (
+              ('firebaseUid' in resource.data)
+
+              && ('firebaseUid' in request.resource.data)
+
+              && resource.data.firebaseUid
+                == request.auth.uid
+
+              && request.resource.data.firebaseUid
+                == resource.data.firebaseUid
+            )
+          )
+        );
+
+      /*
+       * ====================================
+       * EXCLUIR MEMBRO
+       * ====================================
+       *
+       * Somente administrador.
+       *
+       * Não pode excluir o próprio documento.
+       */
+      allow delete: if isAdmin()
+        && !isSelf(userId);
+    }
+
+    /*
+     * ========================================
+     * TAREFAS
+     * ========================================
+     */
+
+    match /tasks/{taskId} {
+
+      /*
+       * ADMIN:
+       * pode ler todas.
+       *
+       * MEMBRO:
+       * somente tarefas atribuídas a ele
+       * ou criadas por ele.
+       */
+      allow read: if activeMember()
+        && canReadTask(resource.data);
+
+      /*
+       * Criação.
+       */
+      allow create: if activeMember()
+
+        && validTaskPayload(
+          request.resource.data
+        )
+
+        && request.resource.data.id
+          == taskId
+
+        && canWriteTask(
+          request.resource.data
+        );
+
+      /*
+       * Atualização.
+       */
+      allow update: if activeMember()
+
+        && validTaskPayload(
+          request.resource.data
+        )
+
+        && request.resource.data.id
+          == resource.data.id
+
+        && canWriteTask(
+          resource.data
+        )
+
+        && canWriteTask(
+          request.resource.data
+        )
+
+        && (
+          /*
+           * Administrador pode fazer
+           * validações e alterações gerais.
+           */
+          isAdmin()
+
+          ||
+
+          /*
+           * Membro não pode alterar
+           * dados de validação.
+           */
+          (
+            request.resource.data.createdBy
+              == resource.data.createdBy
+
+            && request.resource.data.validationStatus
+              == resource.data.validationStatus
+
+            && request.resource.data.validationComment
+              == resource.data.validationComment
+          )
+        );
+
+      /*
+       * Somente administrador exclui.
+       */
       allow delete: if isAdmin();
     }
 
+    /*
+     * ========================================
+     * AUSÊNCIAS
+     * ========================================
+     */
+
     match /absences/{absenceId} {
+
+      /*
+       * Usuários ativos podem visualizar.
+       */
       allow read: if activeMember();
 
+      /*
+       * Administrador pode criar para qualquer membro.
+       *
+       * Membro só pode criar a própria ausência.
+       */
       allow create: if activeMember()
-        && request.resource.data.id == absenceId
-        && (isAdmin() || isSelfByMemberId(request.resource.data.memberId));
 
-      allow update: if activeMember()
-        && request.resource.data.id == resource.data.id
-        && (isAdmin() || isSelfByMemberId(resource.data.memberId));
+        && request.resource.data.id
+          == absenceId
 
-      allow delete: if activeMember() && (isAdmin() || isSelfByMemberId(resource.data.memberId));
-    }
-
-    match /notifications/{notificationId} {
-      allow read: if activeMember() && (isAdmin() || resource.data.userId == memberData().id);
-
-      allow create: if activeMember()
-        && request.resource.data.id == notificationId
-        && (isAdmin() || request.resource.data.userId == memberData().id);
-
-      allow update: if activeMember()
-        && request.resource.data.id == resource.data.id
         && (
           isAdmin()
-          || (
-            resource.data.userId == memberData().id
-            && request.resource.data.userId == resource.data.userId
-            && request.resource.data.message == resource.data.message
-            && request.resource.data.type == resource.data.type
-            && request.resource.data.taskId == resource.data.taskId
+
+          ||
+
+          isSelfByMemberId(
+            request.resource.data.memberId
           )
         );
 
-      allow delete: if isAdmin() || (activeMember() && resource.data.userId == memberData().id);
+      /*
+       * Atualização.
+       */
+      allow update: if activeMember()
+
+        && request.resource.data.id
+          == resource.data.id
+
+        && (
+          isAdmin()
+
+          ||
+
+          isSelfByMemberId(
+            resource.data.memberId
+          )
+        );
+
+      /*
+       * Exclusão.
+       */
+      allow delete: if activeMember()
+
+        && (
+          isAdmin()
+
+          ||
+
+          isSelfByMemberId(
+            resource.data.memberId
+          )
+        );
+    }
+
+    /*
+     * ========================================
+     * NOTIFICAÇÕES
+     * ========================================
+     */
+
+    match /notifications/{notificationId} {
+
+      /*
+       * ADMIN:
+       * pode ler todas.
+       *
+       * MEMBRO:
+       * somente notificações dele.
+       */
+      allow read: if activeMember()
+
+        && (
+          isAdmin()
+
+          ||
+
+          resource.data.userId
+            == memberData().id
+        );
+
+      /*
+       * Criação.
+       */
+      allow create: if activeMember()
+
+        && request.resource.data.id
+          == notificationId
+
+        && (
+          isAdmin()
+
+          ||
+
+          request.resource.data.userId
+            == memberData().id
+        );
+
+      /*
+       * Atualização.
+       */
+      allow update: if activeMember()
+
+        && request.resource.data.id
+          == resource.data.id
+
+        && (
+          isAdmin()
+
+          ||
+
+          (
+            resource.data.userId
+              == memberData().id
+
+            && request.resource.data.userId
+              == resource.data.userId
+
+            && request.resource.data.message
+              == resource.data.message
+
+            && request.resource.data.type
+              == resource.data.type
+
+            && request.resource.data.taskId
+              == resource.data.taskId
+          )
+        );
+
+      /*
+       * Exclusão.
+       */
+      allow delete: if
+
+        isAdmin()
+
+        ||
+
+        (
+          activeMember()
+
+          && resource.data.userId
+            == memberData().id
+        );
     }
   }
 }

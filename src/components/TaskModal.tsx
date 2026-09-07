@@ -401,7 +401,7 @@ export function TaskModal({ task, columnId, onClose, mode: initialMode }: TaskMo
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                        Coluna
+                        Responsável de Atribuição
                       </label>
                       <select
                         value={selectedColumnId}
@@ -421,7 +421,7 @@ export function TaskModal({ task, columnId, onClose, mode: initialMode }: TaskMo
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
                         <span className="flex items-center gap-1">
                           <User className="h-4 w-4" />
-                          Responsável principal
+                          Responsável de Execução
                         </span>
                       </label>
                       <select

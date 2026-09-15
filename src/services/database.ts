@@ -219,17 +219,21 @@ const removeDuplicateTasks = (
 };
 
 class DatabaseService {
+  // Demonstração somente em desenvolvimento, sem configuração Firebase.
+  // O Map é volátil: não grava dados no disco do navegador.
+  private readonly demoEnabled = import.meta.env.DEV && !isFirebaseConfigured();
+  private readonly demoData = new Map<string, unknown>();
+
   private useFirebase: boolean;
 
   constructor() {
     this.useFirebase =
-      isFirebaseConfigured() &&
-      db !== null;
+      !this.demoEnabled;
 
     console.log(
       this.useFirebase
         ? '🔥 Usando Firebase'
-        : '💾 Usando LocalStorage'
+        : 'Demonstração em memória (sem armazenamento persistente)'
     );
   }
 
@@ -246,7 +250,7 @@ class DatabaseService {
     data: T
   ): Promise<void> {
     if (!db) {
-      return;
+      throw new Error('Firebase indisponível. Verifique a configuração.');
     }
 
     const docRef =
@@ -272,7 +276,7 @@ class DatabaseService {
     id: string
   ): Promise<void> {
     if (!db) {
-      return;
+      throw new Error('Firebase indisponível. Verifique a configuração.');
     }
 
     const docRef =
@@ -294,7 +298,7 @@ class DatabaseService {
     ) => T
   ): Promise<T[]> {
     if (!db) {
-      return [];
+      throw new Error('Firebase indisponível. Verifique a configuração.');
     }
 
     const snapshot =
@@ -362,45 +366,25 @@ class DatabaseService {
 
   /*
    * ==========================================
-   * LOCAL STORAGE
+   * DEMONSTRAÇÃO EM MEMÓRIA
    * ==========================================
    */
 
-  private saveToLocalStorage(
-    key: string,
-    data: unknown
-  ): void {
-    localStorage.setItem(
-      `taskflow_${key}`,
-      JSON.stringify(
-        serializeValue(data)
-      )
-    );
+  private saveToMemory(key: string, data: unknown): void {
+    if (!this.demoEnabled) {
+      throw new Error('Firebase indisponível. Não é permitido salvar dados em modo local.');
+    }
+    this.demoData.set(key, structuredClone(data));
   }
 
-  private loadFromLocalStorage<T>(
-    key: string,
-    reviver?: (
-      value: T
-    ) => T
-  ): T[] | null {
-    const data =
-      localStorage.getItem(
-        `taskflow_${key}`
-      );
-
-    if (!data) {
-      return null;
+  private loadFromMemory<T>(key: string, reviver?: (value: T) => T): T[] | null {
+    if (!this.demoEnabled) {
+      throw new Error('Firebase indisponível. Não é permitido carregar dados em modo local.');
     }
-
-    const parsed =
-      JSON.parse(
-        data
-      ) as T[];
-
-    return reviver
-      ? parsed.map(reviver)
-      : parsed;
+    const stored = this.demoData.get(key);
+    if (!stored) return null;
+    const items = structuredClone(stored) as T[];
+    return reviver ? items.map(reviver) : items;
   }
 
   /*
@@ -425,7 +409,7 @@ class DatabaseService {
       return;
     }
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'tasks',
       tasks.map(reviveTask)
     );
@@ -447,7 +431,7 @@ class DatabaseService {
     }
 
     const tasks =
-      this.loadFromLocalStorage<Task>(
+      this.loadFromMemory<Task>(
         'tasks',
         reviveTask
       ) || [];
@@ -468,7 +452,7 @@ class DatabaseService {
       );
     }
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'tasks',
       tasks
     );
@@ -493,12 +477,12 @@ class DatabaseService {
     }
 
     const tasks =
-      this.loadFromLocalStorage<Task>(
+      this.loadFromMemory<Task>(
         'tasks',
         reviveTask
       ) || [];
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'tasks',
       tasks.filter(
         (task) =>
@@ -525,7 +509,7 @@ class DatabaseService {
     }
 
     return (
-      this.loadFromLocalStorage<Task>(
+      this.loadFromMemory<Task>(
         'tasks',
         reviveTask
       ) || []
@@ -557,7 +541,7 @@ class DatabaseService {
       !db
     ) {
       const tasks =
-        this.loadFromLocalStorage<Task>(
+        this.loadFromMemory<Task>(
           'tasks',
           reviveTask
         ) || [];
@@ -685,8 +669,8 @@ class DatabaseService {
 
     if (this.useFirebase) {
       if (!db) {
-        return;
-      }
+      throw new Error('Firebase indisponível. Verifique a configuração.');
+    }
 
       const documentId =
         normalizedMember.firebaseUid ||
@@ -718,7 +702,7 @@ class DatabaseService {
     }
 
     const members =
-      this.loadFromLocalStorage<TeamMember>(
+      this.loadFromMemory<TeamMember>(
         'teamMembers',
         reviveMember
       ) || [];
@@ -739,7 +723,7 @@ class DatabaseService {
       );
     }
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'teamMembers',
       members
     );
@@ -766,7 +750,7 @@ class DatabaseService {
       return;
     }
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'teamMembers',
       normalizedMembers
     );
@@ -826,7 +810,7 @@ class DatabaseService {
     }
 
     const members =
-      this.loadFromLocalStorage<TeamMember>(
+      this.loadFromMemory<TeamMember>(
         'teamMembers',
         reviveMember
       ) || [];
@@ -881,7 +865,7 @@ class DatabaseService {
     }
 
     return (
-      this.loadFromLocalStorage<TeamMember>(
+      this.loadFromMemory<TeamMember>(
         'teamMembers',
         reviveMember
       ) || []
@@ -893,8 +877,8 @@ class DatabaseService {
   ): Promise<void> {
     if (this.useFirebase) {
       if (!db) {
-        return;
-      }
+      throw new Error('Firebase indisponível. Verifique a configuração.');
+    }
 
       /*
        * Como o documento usa firebaseUid
@@ -939,12 +923,12 @@ class DatabaseService {
     }
 
     const members =
-      this.loadFromLocalStorage<TeamMember>(
+      this.loadFromMemory<TeamMember>(
         'teamMembers',
         reviveMember
       ) || [];
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'teamMembers',
 
       members.filter(
@@ -978,7 +962,7 @@ class DatabaseService {
     }
 
     const absences =
-      this.loadFromLocalStorage<AbsenceEvent>(
+      this.loadFromMemory<AbsenceEvent>(
         'absences',
         reviveAbsence
       ) || [];
@@ -999,7 +983,7 @@ class DatabaseService {
       );
     }
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'absences',
       absences
     );
@@ -1018,12 +1002,12 @@ class DatabaseService {
     }
 
     const absences =
-      this.loadFromLocalStorage<AbsenceEvent>(
+      this.loadFromMemory<AbsenceEvent>(
         'absences',
         reviveAbsence
       ) || [];
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'absences',
 
       absences.filter(
@@ -1034,23 +1018,52 @@ class DatabaseService {
     );
   }
 
-  async loadAbsences(): Promise<
-    AbsenceEvent[]
-  > {
-    if (this.useFirebase) {
+  async loadAbsences(
+  member: { id: string; isAdmin: boolean }
+): Promise<AbsenceEvent[]> {
+  if (!member.id) {
+    throw new Error('Membro não identificado ao carregar ausências.');
+  }
+
+  if (this.useFirebase) {
+    if (!db) {
+      throw new Error('Firestore não está disponível.');
+    }
+
+    if (member.isAdmin) {
       return this.loadFromFirebase<AbsenceEvent>(
         'absences',
         reviveAbsence
       );
     }
 
-    return (
-      this.loadFromLocalStorage<AbsenceEvent>(
-        'absences',
-        reviveAbsence
-      ) || []
+    const absencesQuery = query(
+      collection(db, 'absences'),
+      where('memberId', '==', member.id)
     );
+
+    const snapshot = await getDocs(absencesQuery);
+
+    return snapshot.docs.map((document) => {
+  const absence = {
+    ...document.data(),
+    id: document.id,
+  } as AbsenceEvent;
+
+  return reviveAbsence(absence);
+});
   }
+
+  const absences =
+    this.loadFromMemory<AbsenceEvent>(
+      'absences',
+      reviveAbsence
+    ) || [];
+
+  return member.isAdmin
+    ? absences
+    : absences.filter((absence) => absence.memberId === member.id);
+}
 
   /*
    * ==========================================
@@ -1081,7 +1094,7 @@ class DatabaseService {
     }
 
     const current =
-      this.loadFromLocalStorage<Notification>(
+      this.loadFromMemory<Notification>(
         'notifications',
         reviveNotification
       ) || [];
@@ -1111,7 +1124,7 @@ class DatabaseService {
       }
     }
 
-    this.saveToLocalStorage(
+    this.saveToMemory(
       'notifications',
       next
     );
@@ -1131,7 +1144,7 @@ class DatabaseService {
     }
 
     return (
-      this.loadFromLocalStorage<Notification>(
+      this.loadFromMemory<Notification>(
         'notifications',
         reviveNotification
       ) || []
@@ -1154,7 +1167,7 @@ class DatabaseService {
       !db
     ) {
       const notifications =
-        this.loadFromLocalStorage<Notification>(
+        this.loadFromMemory<Notification>(
           'notifications',
           reviveNotification
         ) || [];

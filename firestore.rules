@@ -115,31 +115,108 @@ service cloud.firestore {
      */
 
     function validTaskPayload(data) {
-      return data.keys().hasAll([
-          'id',
-          'title',
-          'description',
-          'status',
-          'columnId',
-          'createdAt',
-          'createdBy'
-        ])
+  return data.keys().hasAll([
+      'id',
+      'title',
+      'description',
+      'status',
+      'columnId',
+      'createdAt',
+      'createdBy'
+    ])
 
-        && data.id is string
+    // Somente estes campos podem existir na tarefa.
+    && data.keys().hasOnly([
+      'id',
+      'title',
+      'description',
+      'assigneeId',
+      'startDate',
+      'dueDate',
+      'status',
+      'checklist',
+      'comments',
+      'attachments',
+      'columnId',
+      'createdAt',
+      'createdBy',
+      'validationStatus',
+      'validationComment'
+    ])
 
-        && data.title is string
-        && data.title.size() > 0
-        && data.title.size() <= 150
+    && data.id is string
+    && data.id.size() > 0
 
-        && data.description is string
-        && data.description.size() <= 5000
+    && data.title is string
+    && data.title.size() > 0
+    && data.title.size() <= 150
 
-        && validTaskStatus(data.status)
+    && data.description is string
+    && data.description.size() <= 5000
 
-        && data.columnId is string
+    && validTaskStatus(data.status)
 
-        && data.createdBy is string;
-    }
+    && data.columnId is string
+    && data.columnId.size() > 0
+
+    && data.createdBy is string
+    && data.createdBy.size() > 0
+
+    // O serviço atual grava datas como texto.
+    && data.createdAt is string
+    && data.createdAt.size() > 0
+    && data.createdAt.size() <= 40
+
+    // Responsável pode estar ausente ou ser null.
+    && (
+      data.get('assigneeId', null) == null
+      || (
+        data.assigneeId is string
+        && data.assigneeId.size() > 0
+      )
+    )
+
+    // Datas opcionais.
+    && (
+      data.get('startDate', null) == null
+      || (
+        data.startDate is string
+        && data.startDate.size() > 0
+        && data.startDate.size() <= 40
+      )
+    )
+
+    && (
+      data.get('dueDate', null) == null
+      || (
+        data.dueDate is string
+        && data.dueDate.size() > 0
+        && data.dueDate.size() <= 40
+      )
+    )
+
+    // Quando presentes, estes campos precisam ser listas.
+    && data.get('checklist', []) is list
+    && data.get('comments', []) is list
+    && data.get('attachments', []) is list
+
+    // Validação opcional, com valores conhecidos.
+    && (
+      !('validationStatus' in data)
+      || data.validationStatus in [
+        'approved',
+        'needs_adjustment'
+      ]
+    )
+
+    && (
+      !('validationComment' in data)
+      || (
+        data.validationComment is string
+        && data.validationComment.size() <= 5000
+      )
+    );
+}
 
     /*
      * ========================================
@@ -196,11 +273,16 @@ service cloud.firestore {
    * Administradores também podem
    * consultar os membros.
    */
-  allow read: if signedIn()
-    && (
-      request.auth.uid == userId
-      || isAdmin()
-    );
+  // Permite consultar o próprio cadastro durante o login.
+// Membros ativos também podem consultar outros membros.
+allow get: if signedIn()
+  && (
+    request.auth.uid == userId
+    || activeMember()
+  );
+
+// Permite consultar a equipe somente para membros ativos.
+allow list: if activeMember();
       /*
        * ====================================
        * CRIAR MEMBRO
@@ -361,86 +443,77 @@ service cloud.firestore {
      * TAREFAS
      * ========================================
      */
+match /tasks/{taskId} {
+  // Admin lê todas.
+  // Membro lê tarefas atribuídas a ele ou criadas por ele.
+  allow read: if activeMember()
+    && canReadTask(resource.data);
 
-    match /tasks/{taskId} {
+  // Regra de criação preservada nesta etapa.
+  allow create: if activeMember()
+    && validTaskPayload(request.resource.data)
+    && request.resource.data.id == taskId
+    && canWriteTask(request.resource.data);
 
-      /*
-       * ADMIN:
-       * pode ler todas.
-       *
-       * MEMBRO:
-       * somente tarefas atribuídas a ele
-       * ou criadas por ele.
-       */
-      allow read: if activeMember()
-        && canReadTask(resource.data);
+  function validNewComment(comment) {
+    return comment is map
+      && comment.keys().hasAll([
+        'id', 'userId', 'text', 'createdAt'
+      ])
+      && comment.keys().hasOnly([
+        'id', 'userId', 'text', 'createdAt'
+      ])
+      && comment.id is string
+      && comment.id.size() > 0
+      && comment.id.size() <= 128
+      && comment.userId == memberData().id
+      && comment.text is string
+      && comment.text.size() > 0
+      && comment.text.size() <= 5000
 
-      /*
-       * Criação.
-       */
-      allow create: if activeMember()
+      // O database.ts atual grava datas como texto.
+      && comment.createdAt is string
+      && comment.createdAt.size() > 0
+      && comment.createdAt.size() <= 40;
+  }
 
-        && validTaskPayload(
-          request.resource.data
-        )
+  function onlyAddsOwnComment() {
+    let previous = resource.data.get('comments', []);
+    let next = request.resource.data.get('comments', []);
 
-        && request.resource.data.id
-          == taskId
+    return previous is list
+      && next is list
 
-        && canWriteTask(
-          request.resource.data
-        );
+      // Nenhum campo além de comments pode mudar.
+      && request.resource.data.diff(resource.data)
+        .affectedKeys().hasOnly(['comments'])
 
-      /*
-       * Atualização.
-       */
-      allow update: if activeMember()
+      // Acrescenta exatamente um comentário.
+      && next.size() == previous.size() + 1
+      && next.size() <= 1000
 
-        && validTaskPayload(
-          request.resource.data
-        )
+      // O novo comentário fica no final e pertence ao membro.
+      && validNewComment(next[previous.size()])
+      && !(next[previous.size()] in previous)
 
-        && request.resource.data.id
-          == resource.data.id
+      // Os comentários anteriores permanecem iguais e na mesma ordem.
+      && next.removeAll([next[previous.size()]]) == previous;
+  }
 
-        && canWriteTask(
-          resource.data
-        )
+  allow update: if activeMember()
+    && validTaskPayload(request.resource.data)
+    && request.resource.data.id == resource.data.id
+    && (
+      isAdmin()
+      || (
+        canReadTask(resource.data)
+        && onlyAddsOwnComment()
+      )
+    );
 
-        && canWriteTask(
-          request.resource.data
-        )
-
-        && (
-          /*
-           * Administrador pode fazer
-           * validações e alterações gerais.
-           */
-          isAdmin()
-
-          ||
-
-          /*
-           * Membro não pode alterar
-           * dados de validação.
-           */
-          (
-            request.resource.data.createdBy
-              == resource.data.createdBy
-
-            && request.resource.data.validationStatus
-              == resource.data.validationStatus
-
-            && request.resource.data.validationComment
-              == resource.data.validationComment
-          )
-        );
-
-      /*
-       * Somente administrador exclui.
-       */
-      allow delete: if isAdmin();
-    }
+  // Somente administrador exclui.
+  allow delete: if isAdmin();
+}
 
     /*
      * ========================================
@@ -450,65 +523,53 @@ service cloud.firestore {
 
     match /absences/{absenceId} {
 
-      /*
-       * Usuários ativos podem visualizar.
-       */
-      allow read: if activeMember();
+  /*
+   * Administrador vê todas as ausências.
+   * Membro ativo vê somente as próprias.
+   */
+  allow read: if activeMember()
+    && (
+      isAdmin()
+      || resource.data.memberId == memberData().id
+    );
 
-      /*
-       * Administrador pode criar para qualquer membro.
-       *
-       * Membro só pode criar a própria ausência.
-       */
-      allow create: if activeMember()
+  /*
+   * Administrador pode criar para qualquer membro.
+   * Membro só pode criar a própria ausência.
+   */
+  allow create: if activeMember()
+    && request.resource.data.id == absenceId
+    && (
+      isAdmin()
+      || isSelfByMemberId(request.resource.data.memberId)
+    );
 
-        && request.resource.data.id
-          == absenceId
+  /*
+   * Administrador pode atualizar qualquer ausência.
+   * Membro só pode atualizar a própria,
+   * sem transferi-la para outra pessoa.
+   */
+  allow update: if activeMember()
+    && request.resource.data.id == resource.data.id
+    && (
+      isAdmin()
+      || (
+        isSelfByMemberId(resource.data.memberId)
+        && request.resource.data.memberId
+          == resource.data.memberId
+      )
+    );
 
-        && (
-          isAdmin()
-
-          ||
-
-          isSelfByMemberId(
-            request.resource.data.memberId
-          )
-        );
-
-      /*
-       * Atualização.
-       */
-      allow update: if activeMember()
-
-        && request.resource.data.id
-          == resource.data.id
-
-        && (
-          isAdmin()
-
-          ||
-
-          isSelfByMemberId(
-            resource.data.memberId
-          )
-        );
-
-      /*
-       * Exclusão.
-       */
-      allow delete: if activeMember()
-
-        && (
-          isAdmin()
-
-          ||
-
-          isSelfByMemberId(
-            resource.data.memberId
-          )
-        );
-    }
-
+  /*
+   * Administrador pode excluir qualquer ausência.
+   * Membro só pode excluir a própria.
+   */
+  allow delete: if activeMember()
+    && (
+      isAdmin()
+      || isSelfByMemberId(resource.data.memberId)
+    );
+}
     /*
      * ========================================
      * NOTIFICAÇÕES
@@ -583,21 +644,23 @@ service cloud.firestore {
           )
         );
 
-      /*
-       * Exclusão.
+            /*
+       * Exclusão de notificações.
        */
       allow delete: if
-
         isAdmin()
-
-        ||
-
-        (
+        || (
           activeMember()
-
-          && resource.data.userId
-            == memberData().id
+          && resource.data.userId == memberData().id
         );
+    }
+
+    /*
+     * Nega acesso quando nenhuma regra
+     * concede permissão explicitamente.
+     */
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

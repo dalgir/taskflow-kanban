@@ -22,13 +22,34 @@ import {
 } from 'lucide-react';
 
 import { cn } from '../utils/cn';
-import { TeamMember } from '../types';
+// Atalhos públicos de apresentação; não concedem acesso nem permissões.
+// Atualize aqui os dados exibidos caso os e-mails de teste mudem.
+type LoginShortcut = {
+  id: string;
+  name: string;
+  role: string;
+  avatar: string;
+  avatarUrl?: string;
+  email: string;
+  displayAdmin: boolean;
+};
+
+const LOGIN_SHORTCUTS: LoginShortcut[] = [
+  { id: '1', name: 'Alyson Lopes', role: 'Gerente de Gestão (Administrador)',
+    avatar: '👨‍💼', email: 'alyson@empresa.com', displayAdmin: true },
+  { id: '2', name: 'Neuma Calixto', role: 'Apoio Técnico',
+    avatar: '👩‍💼', email: 'neuma@empresa.com', displayAdmin: false },
+  { id: '3', name: 'Jany Barros', role: 'Apoio Técnico',
+    avatar: '👩‍💻', email: 'jany@empresa.com', displayAdmin: false },
+  { id: '4', name: 'Mayara Aquino', role: 'Apoio Técnico',
+    avatar: '👩‍🎨', email: 'mayara@empresa.com', displayAdmin: false },
+];
 
 function LiquidButton({
   member,
   onClick,
 }: {
-  member: TeamMember;
+  member: LoginShortcut;
   onClick: () => void;
 }) {
   const [fillLevel, setFillLevel] = useState(0);
@@ -88,7 +109,7 @@ function LiquidButton({
     return () => clearFillInterval();
   }, [clearFillInterval]);
 
-  const isAdmin = member.isAdmin;
+  const isAdmin = member.displayAdmin;
 
   const borderColor = isAdmin
     ? 'rgba(245,158,11,0.55)'
@@ -310,7 +331,6 @@ export function Login() {
   const {
     login,
     register,
-    teamMembers,
     firebaseEnabled,
   } = useApp();
 
@@ -329,14 +349,10 @@ export function Login() {
   const passwordInputRef =
     useRef<HTMLInputElement>(null);
 
-  const activeMembers =
-    teamMembers.filter(
-      (member) =>
-        member.isActive !== false
-    );
+  const loginShortcuts = LOGIN_SHORTCUTS;
 
   const selectedMember =
-    activeMembers.find(
+    loginShortcuts.find(
       (member) =>
         member.email
           .trim()
@@ -451,28 +467,7 @@ export function Login() {
       return;
     }
 
-    const member =
-      activeMembers.find(
-        (item) =>
-          item.email
-            .trim()
-            .toLowerCase() ===
-          normalizedEmail
-      );
-
-    /*
-     * O e-mail precisa existir
-     * entre os membros ativos
-     * mostrados pelo sistema.
-     */
-    if (!member) {
-      setError(
-        'Este e-mail não está entre os usuários ativos do TaskFlow.'
-      );
-
-      return;
-    }
-
+    // A lista visual não valida contas: o Firebase processa a recuperação.
     try {
       setIsSubmitting(true);
 
@@ -518,7 +513,7 @@ export function Login() {
   };
 
   const handleSelectMember = (
-    member: TeamMember
+    member: LoginShortcut
   ) => {
     setEmail(member.email);
     setPassword('');
@@ -738,7 +733,7 @@ export function Login() {
               </p>
 
               <div className="space-y-3">
-                {activeMembers.map((member) => (
+                {loginShortcuts.map((member) => (
                   <LiquidButton
                     key={member.id}
                     member={member}

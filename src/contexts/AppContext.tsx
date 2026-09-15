@@ -5,6 +5,7 @@ import {
   useEffect,
   ReactNode,
   useCallback,
+  useRef,
 } from 'react';
 
 import {
@@ -51,6 +52,7 @@ interface AppState {
   weekInfo: WeekInfo;
   isLoggedIn: boolean;
   authLoading: boolean;
+  authError: string;
   firebaseEnabled: boolean;
 }
 
@@ -1044,96 +1046,16 @@ const defaultTasks: Task[] = [
   },
 ];
 
-const loadFromStorage = <T,>(
-  key: string,
-  defaultValue: T
-): T => {
-  try {
-    const stored =
-      localStorage.getItem(
-        key
-      );
-
-    if (stored) {
-      const parsed =
-        JSON.parse(
-          stored
-        );
-
-      if (
-        Array.isArray(
-          parsed
-        )
-      ) {
-        return parsed.map(
-          (
-            item: any
-          ) => ({
-            ...item,
-
-            startDate:
-              item.startDate
-                ? new Date(
-                    item.startDate
-                  )
-                : null,
-
-            dueDate:
-              item.dueDate
-                ? new Date(
-                    item.dueDate
-                  )
-                : null,
-
-            endDate:
-              item.endDate
-                ? new Date(
-                    item.endDate
-                  )
-                : item.endDate,
-
-            createdAt:
-              item.createdAt
-                ? new Date(
-                    item.createdAt
-                  )
-                : new Date(),
-
-            comments:
-              Array.isArray(
-                item.comments
-              )
-                ? item.comments.map(
-                    (
-                      comment: any
-                    ) => ({
-                      ...comment,
-
-                      createdAt:
-                        comment.createdAt
-                          ? new Date(
-                              comment.createdAt
-                            )
-                          : new Date(),
-                    })
-                  )
-                : item.comments,
-          })
-        ) as T;
-      }
-
-      return parsed;
-    }
-  } catch (
-    error
-  ) {
-    console.error(
-      'Error loading from storage:',
-      error
-    );
+const clearLegacyStorage = () => {
+  const keys = [
+    'tasks', 'teamMembers', 'notifications', 'absenceEvents', 'absences',
+    'currentUser', 'isLoggedIn', 'taskflow_tasks', 'taskflow_teamMembers',
+    'taskflow_notifications', 'taskflow_absences',
+  ];
+  for (const key of keys) {
+    try { localStorage.removeItem(key); }
+    catch { /* O navegador pode bloquear o acesso ao armazenamento. */ }
   }
-
-  return defaultValue;
 };
 
 const normalizeMember = (
@@ -1223,114 +1145,35 @@ export function AppProvider({
   children:
     ReactNode;
 }) {
-  const [
-    teamMembers,
-    setTeamMembers,
-  ] =
-    useState<
-      TeamMember[]
-    >(() =>
-      sortTeamMembers(
-        loadFromStorage(
-          'teamMembers',
-          defaultTeamMembers
-        ).map(
-          normalizeMember
-        )
-      )
-    );
+  const firebaseEnabled = isFirebaseConfigured();
+  const demoEnabled = import.meta.env.DEV && !firebaseEnabled;
 
-  const [
-    tasks,
-    setTasks,
-  ] =
-    useState<
-      Task[]
-    >(() =>
-      loadFromStorage(
-        'tasks',
-        defaultTasks
-      )
-    );
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() =>
+    demoEnabled ? sortTeamMembers(defaultTeamMembers.map(normalizeMember)) : []
+  );
+  const [tasks, setTasks] = useState<Task[]>(() => demoEnabled ? defaultTasks : []);
+  const [columns, setColumns] = useState<Column[]>(() => getInitialColumns(teamMembers));
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [absenceEvents, setAbsenceEvents] = useState<AbsenceEvent[]>([]);
 
-  const [
-    columns,
-    setColumns,
-  ] =
-    useState<
-      Column[]
-    >(() =>
-      getInitialColumns(
-        teamMembers
-      )
-    );
+  const [currentUser, setCurrentUser] = useState<TeamMember | null>(null);
 
-  const [
-    notifications,
-    setNotifications,
-  ] =
-    useState<
-      Notification[]
-    >(() =>
-      loadFromStorage(
-        'notifications',
-        []
-      )
-    );
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const [
-    absenceEvents,
-    setAbsenceEvents,
-  ] =
-    useState<
-      AbsenceEvent[]
-    >(() =>
-      loadFromStorage(
-        'absenceEvents',
-        []
-      )
-    );
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
 
-  const firebaseEnabled =
-    isFirebaseConfigured();
-
-  const [
-    currentUser,
-    setCurrentUser,
-  ] =
-    useState<
-      TeamMember | null
-    >(() => {
-      const stored =
-        localStorage.getItem(
-          'currentUser'
-        );
-
-      return stored
-        ? JSON.parse(
-            stored
-          )
-        : null;
-    });
-
-  const [
-    isLoggedIn,
-    setIsLoggedIn,
-  ] =
-    useState(
-      () =>
-        localStorage.getItem(
-          'isLoggedIn'
-        ) === 'true'
-    );
-
-  const [
-    authLoading,
-    setAuthLoading,
-  ] =
-    useState<boolean>(
-      firebaseEnabled
-    );
+  const [authError, setAuthError] = useState('');
+  const sessionVersion = useRef(0);
+  const clearSession = useCallback(() => {
+    setCurrentUser(null);
+    setIsLoggedIn(false);
+    setTasks([]);
+    setTeamMembers([]);
+    setNotifications([]);
+    setAbsenceEvents([]);
+    setColumns([]);
+    clearLegacyStorage();
+  }, []);
 
   const [
     weekInfo,
@@ -1339,80 +1182,15 @@ export function AppProvider({
       getInitialWeekInfo()
     );
 
+  // A equipe determina as colunas, sem persistir dados no navegador.
   useEffect(() => {
-    localStorage.setItem(
-      'tasks',
-      JSON.stringify(
-        tasks
-      )
-    );
-  }, [tasks]);
+    setColumns(getInitialColumns(teamMembers));
+  }, [teamMembers]);
 
+  // Remove cópias deixadas pelas versões anteriores, inclusive antes do login.
   useEffect(() => {
-    localStorage.setItem(
-      'teamMembers',
-      JSON.stringify(
-        teamMembers
-      )
-    );
-
-    setColumns(
-      getInitialColumns(
-        teamMembers
-      )
-    );
-  }, [
-    teamMembers,
-  ]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      'notifications',
-      JSON.stringify(
-        notifications
-      )
-    );
-  }, [
-    notifications,
-  ]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      'absenceEvents',
-      JSON.stringify(
-        absenceEvents
-      )
-    );
-  }, [
-    absenceEvents,
-  ]);
-
-  useEffect(() => {
-    if (
-      currentUser
-    ) {
-      localStorage.setItem(
-        'currentUser',
-        JSON.stringify(
-          currentUser
-        )
-      );
-    } else {
-      localStorage.removeItem(
-        'currentUser'
-      );
-    }
-
-    localStorage.setItem(
-      'isLoggedIn',
-      String(
-        isLoggedIn
-      )
-    );
-  }, [
-    currentUser,
-    isLoggedIn,
-  ]);
+    clearLegacyStorage();
+  }, []);
 
   /*
    * =========================================
@@ -1429,327 +1207,181 @@ export function AppProvider({
    * - somente tarefas permitidas
    * - somente notificações permitidas
    */
-  const applyRemoteData =
-    useCallback(
-      async (
-        member:
-          TeamMember
-      ) => {
-        const remoteMembersPromise =
-          databaseService.loadTeamMembers();
+  const applyRemoteData = useCallback(
+  async (member: TeamMember, version: number) => {
+    const [
+      remoteMembers,
+      remoteTasks,
+      remoteAbsences,
+      remoteNotifications,
+    ] = await Promise.all([
+      databaseService.loadTeamMembers(),
+      databaseService.loadTasksForMember(member),
+      databaseService.loadAbsences(member),
+      databaseService.loadNotificationsForMember(member),
+    ]);
 
-        const remoteTasksPromise =
-          databaseService.loadTasksForMember(
-            member
-          );
-
-        const remoteAbsencesPromise =
-          databaseService.loadAbsences();
-
-        const remoteNotificationsPromise =
-          databaseService.loadNotificationsForMember(
-            member
-          );
-
-        const [
-          remoteMembers,
-          remoteTasks,
-          remoteAbsences,
-          remoteNotifications,
-        ] =
-          await Promise.all([
-            remoteMembersPromise,
-            remoteTasksPromise,
-            remoteAbsencesPromise,
-            remoteNotificationsPromise,
-          ]);
-
-        const normalizedMembers =
-          sortTeamMembers(
-            (
-              remoteMembers.length
-                ? remoteMembers
-                : defaultTeamMembers
-            ).map(
-              normalizeMember
-            )
-          );
-
-        const refreshedUser =
-          normalizedMembers.find(
-            (
-              remoteMember
-            ) =>
-              remoteMember.firebaseUid ===
-                member.firebaseUid ||
-              remoteMember.id ===
-                member.id
-          ) ??
-          member;
-
-        setTeamMembers(
-          normalizedMembers
-        );
-
-        /*
-         * Para administrador mantemos
-         * o comportamento original de
-         * usar tarefas padrão se o banco
-         * estiver vazio.
-         *
-         * Para membro comum, lista vazia
-         * significa simplesmente que ele
-         * não possui tarefas.
-         */
-        if (
-          member.isAdmin
-        ) {
-          setTasks(
-            remoteTasks.length
-              ? remoteTasks
-              : defaultTasks
-          );
-        } else {
-          setTasks(
-            remoteTasks
-          );
-        }
-
-        setAbsenceEvents(
-          remoteAbsences
-        );
-
-        setNotifications(
-          remoteNotifications
-        );
-
-        setCurrentUser(
-          refreshedUser
-        );
-      },
-      []
-    );
-
-  /*
-   * =========================================
-   * OBSERVADOR DO FIREBASE AUTHENTICATION
-   * =========================================
-   *
-   * O Firestore real está estruturado:
-   *
-   * teamMembers/{UID}
-   *
-   * Portanto usamos o UID do Authentication
-   * para localizar diretamente o usuário.
-   */
-  useEffect(() => {
     if (
-      !firebaseEnabled ||
-      !auth
+      sessionVersion.current !== version ||
+      auth?.currentUser?.uid !== member.firebaseUid
     ) {
-      setAuthLoading(
-        false
-      );
-
       return;
     }
 
-    const unsubscribe =
-      onAuthStateChanged(
-        auth,
-        async (
-          firebaseUser
-        ) => {
-          setAuthLoading(
-            true
+    setTeamMembers(
+      sortTeamMembers(remoteMembers.map(normalizeMember))
+    );
+    setTasks(remoteTasks);
+    setAbsenceEvents(remoteAbsences);
+    setNotifications(remoteNotifications);
+  },
+  []
+);
+
+  /* Sessão real: somente este observador libera o aplicativo. */
+  useEffect(() => {
+  if (!firebaseEnabled || !auth) {
+    clearSession();
+    setAuthLoading(false);
+    return;
+  }
+
+  const firebaseAuth = auth;
+  let disposed = false;
+
+  const unsubscribe = onAuthStateChanged(
+    firebaseAuth,
+    async firebaseUser => {
+      const version = ++sessionVersion.current;
+
+      const isCurrent = () =>
+        !disposed &&
+        sessionVersion.current === version &&
+        firebaseAuth.currentUser?.uid === firebaseUser?.uid;
+
+      clearSession();
+      setAuthLoading(true);
+
+      if (!firebaseUser) {
+        setAuthLoading(false);
+        return;
+      }
+
+      setAuthError('');
+
+      try {
+        // Busca as claims atualizadas nesta validacao de sessao.
+        const tokenResult = await firebaseUser.getIdTokenResult(true);
+
+        if (!isCurrent()) return;
+
+        const claimMemberId = tokenResult.claims.memberId;
+        const claimIsAdmin = tokenResult.claims.isAdmin;
+
+        if (
+          typeof claimMemberId !== 'string' ||
+          claimMemberId.trim().length === 0 ||
+          typeof claimIsAdmin !== 'boolean'
+        ) {
+          throw new Error(
+            'As permissões desta conta ainda não foram configuradas. Fale com o administrador.'
           );
+        }
 
-          try {
-            if (
-              !firebaseUser
-            ) {
-              setCurrentUser(
-                null
-              );
+        const member =
+          await databaseService.loadTeamMemberByUid(firebaseUser.uid);
 
-              setIsLoggedIn(
-                false
-              );
+        if (!isCurrent()) return;
 
-              return;
-            }
+        if (!member || member.isActive !== true) {
+          throw new Error(
+            'Cadastro inexistente ou desativado. Fale com o administrador.'
+          );
+        }
 
-            /*
-             * Busca diretamente:
-             *
-             * teamMembers/{UID}
-             */
-            const matchedMember =
-              await databaseService.loadTeamMemberByUid(
-                firebaseUser.uid
-              );
+        const normalizedMember = normalizeMember(member);
 
-            if (
-              !matchedMember
-            ) {
-              console.error(
-                'Usuário autenticado, mas não existe em teamMembers com este UID.'
-              );
+        if (
+          member.firebaseUid &&
+          member.firebaseUid !== firebaseUser.uid
+        ) {
+          throw new Error(
+            'A conta não corresponde ao cadastro do membro.'
+          );
+        }
 
-              await signOut(
-                auth
-              );
+        if (
+          normalizedMember.id !== claimMemberId ||
+          member.isAdmin !== claimIsAdmin
+        ) {
+          throw new Error(
+            'As permissões da conta estão diferentes do cadastro. Fale com o administrador para sincronizá-las.'
+          );
+        }
 
-              setCurrentUser(
-                null
-              );
+        // Mantido enquanto as regras atuais ainda comparam e-mail.
+        if (
+          normalizedMember.email !==
+          firebaseUser.email?.trim().toLowerCase()
+        ) {
+          throw new Error(
+            'O e-mail da conta não corresponde ao cadastro do membro.'
+          );
+        }
 
-              setIsLoggedIn(
-                false
-              );
+        const hydratedMember: TeamMember = {
+          ...normalizedMember,
+          id: claimMemberId,
+          isAdmin: claimIsAdmin,
+          firebaseUid: firebaseUser.uid,
+        };
 
-              return;
-            }
+        await applyRemoteData(hydratedMember, version);
 
-            const normalizedMember =
-              normalizeMember(
-                matchedMember
-              );
+        if (!isCurrent()) return;
 
-            const authEmail =
-              firebaseUser.email
-                ?.trim()
-                .toLowerCase();
+        setCurrentUser(hydratedMember);
+        setIsLoggedIn(true);
+      } catch (error) {
+        if (!isCurrent()) return;
 
-            /*
-             * O e-mail do Authentication
-             * precisa ser o mesmo e-mail
-             * salvo no membro.
-             */
-            if (
-              !authEmail ||
-              normalizedMember.email !==
-                authEmail
-            ) {
-              console.error(
-                'O e-mail do Firebase Authentication não corresponde ao cadastro do membro.'
-              );
+        clearSession();
 
-              await signOut(
-                auth
-              );
+        const code = (error as { code?: string })?.code;
 
-              setCurrentUser(
-                null
-              );
+        setAuthError(
+          code === 'permission-denied'
+            ? 'Seu acesso não tem permissão de leitura. Fale com o administrador.'
+            : error instanceof Error
+              ? error.message
+              : 'Não foi possível validar sua sessão.'
+        );
 
-              setIsLoggedIn(
-                false
-              );
+        console.error('Falha ao validar a sessão:', error);
 
-              return;
-            }
-
-            /*
-             * Usuário desativado não entra.
-             */
-            if (
-              normalizedMember.isActive ===
-              false
-            ) {
-              await signOut(
-                auth
-              );
-
-              setCurrentUser(
-                null
-              );
-
-              setIsLoggedIn(
-                false
-              );
-
-              return;
-            }
-
-            /*
-             * Garantimos que o firebaseUid
-             * no objeto em memória seja o
-             * UID real autenticado.
-             */
-            const hydratedMember:
-              TeamMember = {
-              ...normalizedMember,
-
-              firebaseUid:
-                firebaseUser.uid,
-            };
-
-            setCurrentUser(
-              hydratedMember
-            );
-
-            /*
-             * IMPORTANTE:
-             * primeiro liberamos o estado
-             * de autenticação.
-             */
-            setIsLoggedIn(
-              true
-            );
-
-            /*
-             * Depois carregamos os dados
-             * que aquele usuário realmente
-             * tem permissão para consultar.
-             */
-            try {
-              await applyRemoteData(
-                hydratedMember
-              );
-            } catch (
-              dataError
-            ) {
-              /*
-               * Falha ao carregar uma parte
-               * dos dados NÃO derruba mais
-               * automaticamente o login.
-               */
-              console.error(
-                'Usuário autenticado, mas houve erro ao carregar dados:',
-                dataError
-              );
-            }
-          } catch (
-            error
-          ) {
-            console.error(
-              'Erro ao sincronizar autenticação:',
-              error
-            );
-
-            setCurrentUser(
-              null
-            );
-
-            setIsLoggedIn(
-              false
-            );
-          } finally {
-            setAuthLoading(
-              false
+        try {
+          await signOut(firebaseAuth);
+        } catch {
+          if (isCurrent()) {
+            setAuthError(
+              'Não foi possível encerrar a sessão. Tente sair novamente.'
             );
           }
         }
-      );
+      } finally {
+        if (isCurrent()) {
+          setAuthLoading(false);
+        }
+      }
+    }
+  );
 
-    return () =>
-      unsubscribe();
-  }, [
-    applyRemoteData,
-    firebaseEnabled,
-  ]);
-
+  return () => {
+    disposed = true;
+    ++sessionVersion.current;
+    unsubscribe();
+  };
+}, [firebaseEnabled, clearSession, applyRemoteData]);
   /*
    * =========================================
    * LOGIN
@@ -1805,192 +1437,19 @@ export function AppProvider({
       }
 
       try {
-        setAuthLoading(
-          true
-        );
-
-        const credential =
-          await signInWithEmailAndPassword(
-            auth,
-            normalizedEmail,
-            password
-          );
-
-        /*
-         * Depois da autenticação,
-         * procuramos exatamente:
-         *
-         * teamMembers/{UID}
-         */
-        const matchedMember =
-          await databaseService.loadTeamMemberByUid(
-            credential.user.uid
-          );
-
-        if (
-          !matchedMember
-        ) {
-          await signOut(
-            auth
-          );
-
-          return {
-            success:
-              false,
-
-            message:
-              'Sua conta existe no Firebase Authentication, mas não está vinculada corretamente aos membros do TaskFlow.',
-          };
-        }
-
-        const normalizedMember =
-          normalizeMember(
-            matchedMember
-          );
-
-        if (
-          normalizedMember.isActive ===
-          false
-        ) {
-          await signOut(
-            auth
-          );
-
-          return {
-            success:
-              false,
-
-            message:
-              'Seu acesso ao TaskFlow está desativado.',
-          };
-        }
-
-        if (
-          normalizedMember.email !==
-          normalizedEmail
-        ) {
-          await signOut(
-            auth
-          );
-
-          return {
-            success:
-              false,
-
-            message:
-              'O e-mail do Authentication não corresponde ao cadastro no TaskFlow.',
-          };
-        }
-
-        const hydratedMember:
-          TeamMember = {
-          ...normalizedMember,
-
-          firebaseUid:
-            credential.user.uid,
-        };
-
-        setCurrentUser(
-          hydratedMember
-        );
-
-        setIsLoggedIn(
-          true
-        );
-
-        /*
-         * O login não será cancelado
-         * caso alguma consulta secundária
-         * apresente problema.
-         */
-        try {
-          await applyRemoteData(
-            hydratedMember
-          );
-        } catch (
-          dataError
-        ) {
-          console.error(
-            'Login realizado, mas houve erro ao carregar dados:',
-            dataError
-          );
-        }
-
-        return {
-          success:
-            true,
-        };
-      } catch (
-        error: any
-      ) {
-        console.error(
-          'Erro de login:',
-          error
-        );
-
-        if (
-          error?.code ===
-          'auth/invalid-credential'
-        ) {
-          return {
-            success:
-              false,
-
-            message:
-              'E-mail ou senha incorretos.',
-          };
-        }
-
-        if (
-          error?.code ===
-          'auth/user-disabled'
-        ) {
-          return {
-            success:
-              false,
-
-            message:
-              'Este usuário foi desativado no Firebase.',
-          };
-        }
-
-        if (
-          error?.code ===
-          'auth/too-many-requests'
-        ) {
-          return {
-            success:
-              false,
-
-            message:
-              'Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.',
-          };
-        }
-
-        if (
-          error?.code ===
-          'auth/network-request-failed'
-        ) {
-          return {
-            success:
-              false,
-
-            message:
-              'Não foi possível conectar ao Firebase. Verifique sua internet.',
-          };
-        }
-
-        return {
-          success:
-            false,
-
-          message:
-            'Falha ao autenticar. Verifique o e-mail e a senha.',
-        };
-      } finally {
-        setAuthLoading(
-          false
-        );
+        setAuthError('');
+        await signInWithEmailAndPassword(auth, normalizedEmail, password);
+        // A confirmação de membro e o carregamento pertencem ao observador.
+        return { success: true };
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        const message = code === 'auth/network-request-failed'
+          ? 'Verifique sua conexão e tente novamente.'
+          : code === 'auth/too-many-requests'
+            ? 'Muitas tentativas. Aguarde antes de tentar novamente.'
+            : 'Não foi possível entrar. Verifique seu e-mail e sua senha.';
+        setAuthError(message);
+        return { success: false, message };
       }
     }
 
@@ -1999,6 +1458,9 @@ export function AppProvider({
      * MODO LOCAL
      * ======================================
      */
+    if (!import.meta.env.DEV) {
+      return { success: false, message: 'Configure o Firebase para entrar em produção.' };
+    }
     const member =
       sortTeamMembers(
         teamMembers.map(
@@ -2109,9 +1571,7 @@ export function AppProvider({
     }
 
     try {
-      setAuthLoading(
-        true
-      );
+
 
       /*
        * O próprio Firebase envia um
@@ -2199,10 +1659,6 @@ export function AppProvider({
         message:
           'Não foi possível enviar o link para criação da senha.',
       };
-    } finally {
-      setAuthLoading(
-        false
-      );
     }
   };
 
@@ -2211,36 +1667,19 @@ export function AppProvider({
    * LOGOUT
    * =========================================
    */
-  const logout =
-    async (): Promise<void> => {
-      try {
-        if (
-          firebaseEnabled &&
-          auth
-        ) {
-          await signOut(
-            auth
-          );
-        }
-      } finally {
-        setCurrentUser(
-          null
-        );
-
-        setIsLoggedIn(
-          false
-        );
-
-        localStorage.removeItem(
-          'currentUser'
-        );
-
-        localStorage.setItem(
-          'isLoggedIn',
-          'false'
-        );
-      }
-    };
+  const logout = async (): Promise<void> => {
+    ++sessionVersion.current;
+    clearSession();
+    setAuthLoading(false);
+    if (auth) {
+      try { await signOut(auth); }
+      catch { setAuthError('Não foi possível encerrar a sessão no Firebase. Tente novamente.'); }
+    }
+    if (!firebaseEnabled && import.meta.env.DEV) {
+      setTeamMembers(defaultTeamMembers.map(normalizeMember));
+      setTasks(defaultTasks);
+    }
+  };
 
   /*
    * =========================================
@@ -3862,6 +3301,7 @@ export function AppProvider({
         weekInfo,
         isLoggedIn,
         authLoading,
+        authError,
         firebaseEnabled,
 
         login,

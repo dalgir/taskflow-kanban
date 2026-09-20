@@ -1,39 +1,35 @@
-import {
-  getApp,
-  getApps,
-  initializeApp,
-  type FirebaseApp,
-} from 'firebase/app';
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 
 import {
   initializeFirestore,
   memoryLocalCache,
   type Firestore,
-} from 'firebase/firestore';
+} from "firebase/firestore";
 
 import {
   browserLocalPersistence,
   getAuth,
   setPersistence,
   type Auth,
-} from 'firebase/auth';
+} from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId:
-    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
 };
+
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 export const isFirebaseConfigured = (): boolean => {
   return Boolean(
     firebaseConfig.apiKey &&
-      firebaseConfig.authDomain &&
-      firebaseConfig.projectId &&
-      firebaseConfig.appId
+    firebaseConfig.authDomain &&
+    firebaseConfig.projectId &&
+    firebaseConfig.appId,
   );
 };
 
@@ -41,19 +37,19 @@ export const getFirebaseConfigurationIssues = (): string[] => {
   const issues: string[] = [];
 
   if (!firebaseConfig.apiKey) {
-    issues.push('VITE_FIREBASE_API_KEY ausente');
+    issues.push("VITE_FIREBASE_API_KEY ausente");
   }
 
   if (!firebaseConfig.authDomain) {
-    issues.push('VITE_FIREBASE_AUTH_DOMAIN ausente');
+    issues.push("VITE_FIREBASE_AUTH_DOMAIN ausente");
   }
 
   if (!firebaseConfig.projectId) {
-    issues.push('VITE_FIREBASE_PROJECT_ID ausente');
+    issues.push("VITE_FIREBASE_PROJECT_ID ausente");
   }
 
   if (!firebaseConfig.appId) {
-    issues.push('VITE_FIREBASE_APP_ID ausente');
+    issues.push("VITE_FIREBASE_APP_ID ausente");
   }
 
   return issues;
@@ -62,6 +58,7 @@ export const getFirebaseConfigurationIssues = (): string[] => {
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
 let auth: Auth | null = null;
+let storage: FirebaseStorage | null = null;
 
 if (isFirebaseConfigured()) {
   try {
@@ -76,23 +73,25 @@ if (isFirebaseConfigured()) {
     // A sessão de autenticação continua sendo gerenciada pelo Firebase.
     auth = getAuth(app);
 
+    if (firebaseConfig.storageBucket) {
+      storage = getStorage(app);
+    }
+
     void setPersistence(auth, browserLocalPersistence).catch(
       (error: unknown) => {
         console.error(
-          'Não foi possível configurar a persistência do Firebase Auth:',
-          error
+          "Não foi possível configurar a persistência do Firebase Auth:",
+          error,
         );
-      }
+      },
     );
 
-    console.info('Firebase inicializado com cache em memória.');
+    console.info("Firebase inicializado com cache em memória.");
   } catch (error: unknown) {
-    console.error('Erro ao inicializar o Firebase:', error);
+    console.error("Erro ao inicializar o Firebase:", error);
   }
 } else {
-  console.warn(
-    'Firebase não configurado. Verifique as variáveis de ambiente.'
-  );
+  console.warn("Firebase não configurado. Verifique as variáveis de ambiente.");
 }
 
-export { app, db, auth };
+export { app, db, auth, storage };

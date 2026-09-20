@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 
 import {
+  auth,
   db,
   isFirebaseConfigured,
 } from '../config/firebase';
@@ -661,6 +662,242 @@ class DatabaseService {
    * O campo member.id continua
    * exatamente como está.
    */
+
+async deleteTeamMemberViaApi(
+  uid: string
+): Promise<void> {
+  if (!this.useFirebase) {
+    throw new Error(
+      'A API administrativa só está disponível no modo Firebase.'
+    );
+  }
+
+  const user = auth?.currentUser;
+
+  if (!user) {
+    throw new Error('Faça login para remover membros.');
+  }
+
+  if (!uid.trim()) {
+    throw new Error(
+      'O membro não possui vínculo com o Authentication.'
+    );
+  }
+
+  if (uid === user.uid) {
+    throw new Error(
+      'Você não pode excluir sua própria conta.'
+    );
+  }
+
+  const token = await user.getIdToken();
+
+  const response = await fetch('/api/team-members', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    cache: 'no-store',
+    body: JSON.stringify({ uid }),
+  });
+
+  const contentType = response.headers.get('content-type');
+
+  if (!contentType?.includes('application/json')) {
+    throw new Error(
+      'A API de exclusão não está disponível neste endereço.'
+    );
+  }
+
+  const result: unknown = await response.json();
+
+  if (!isRecord(result)) {
+    throw new Error(
+      'A API retornou uma resposta inválida. Recarregue a equipe antes de tentar novamente.'
+    );
+  }
+
+  if (!response.ok || result.success !== true) {
+    const message =
+      typeof result.message === 'string'
+        ? result.message
+        : 'Não foi possível confirmar a exclusão. Recarregue a equipe antes de tentar novamente.';
+
+    throw new Error(message);
+  }
+}
+
+
+async createTeamMemberViaApi(
+  member: Pick<
+    TeamMember,
+    'name' | 'email' | 'role' | 'avatar' | 'isAdmin'
+  >
+): Promise<TeamMember> {
+  if (!this.useFirebase) {
+    throw new Error(
+      'A API administrativa só está disponível no modo Firebase.'
+    );
+  }
+
+  const user = auth?.currentUser;
+
+  if (!user) {
+    throw new Error('Faça login para cadastrar membros.');
+  }
+
+  const token = await user.getIdToken();
+
+  const response = await fetch('/api/team-members', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    cache: 'no-store',
+    body: JSON.stringify({
+      member: {
+        name: member.name.trim(),
+        email: member.email.trim().toLowerCase(),
+        role: member.role.trim(),
+        avatar: member.avatar,
+        isAdmin: member.isAdmin,
+      },
+    }),
+  });
+
+  const contentType = response.headers.get('content-type');
+
+  if (!contentType?.includes('application/json')) {
+    throw new Error(
+      'A API de cadastro não está disponível neste endereço.'
+    );
+  }
+
+  const result: unknown = await response.json();
+
+  if (!isRecord(result)) {
+    throw new Error('A API retornou uma resposta inválida.');
+  }
+
+  if (!response.ok || result.success !== true) {
+    const message =
+      typeof result.message === 'string'
+        ? result.message
+        : 'Não foi possível cadastrar o membro.';
+
+    throw new Error(message);
+  }
+
+  const saved = result.member;
+
+  if (
+    !isRecord(saved) ||
+    typeof saved.id !== 'string' ||
+    saved.id.trim().length === 0 ||
+    typeof saved.firebaseUid !== 'string' ||
+    saved.firebaseUid.trim().length === 0 ||
+    typeof saved.name !== 'string' ||
+    typeof saved.email !== 'string' ||
+    typeof saved.role !== 'string' ||
+    typeof saved.avatar !== 'string' ||
+    typeof saved.isAdmin !== 'boolean' ||
+    typeof saved.isActive !== 'boolean'
+  ) {
+    throw new Error(
+      'O servidor respondeu sem um cadastro válido. Confira a equipe antes de tentar novamente.'
+    );
+  }
+
+  return {
+    id: saved.id,
+    firebaseUid: saved.firebaseUid,
+    name: saved.name,
+    email: saved.email,
+    role: saved.role,
+    avatar: saved.avatar,
+    isAdmin: saved.isAdmin,
+    isActive: saved.isActive,
+  };
+}
+
+async updateTeamMemberViaApi(
+  uid: string,
+  updates: Partial<
+    Pick<
+      TeamMember,
+      | 'name'
+      | 'role'
+      | 'avatar'
+      | 'avatarUrl'
+      | 'isAdmin'
+      | 'isActive'
+    >
+  >
+): Promise<void> {
+  if (!this.useFirebase) {
+    throw new Error(
+      'A API administrativa só está disponível no modo Firebase.'
+    );
+  }
+
+  const user = auth?.currentUser;
+
+  if (!user) {
+    throw new Error('Faça login para editar membros.');
+  }
+
+  if (!uid.trim()) {
+    throw new Error(
+      'O membro não possui um UID do Authentication.'
+    );
+  }
+
+  const token = await user.getIdToken();
+
+  const response = await fetch('/api/team-members', {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    cache: 'no-store',
+    body: JSON.stringify({
+      uid,
+      updates,
+    }),
+  });
+
+  const contentType = response.headers.get('content-type');
+
+  if (!contentType?.includes('application/json')) {
+    throw new Error(
+      'A API administrativa não está disponível neste endereço.'
+    );
+  }
+
+  const result: unknown = await response.json();
+
+  if (!isRecord(result)) {
+    throw new Error('A API retornou uma resposta inválida.');
+  }
+
+  if (!response.ok || result.success !== true) {
+    const message =
+      typeof result.message === 'string'
+        ? result.message
+        : 'Não foi possível atualizar o membro.';
+
+    const partialWarning =
+      result.profileSaved === true
+        ? ' O cadastro já foi alterado; recarregue os dados antes de tentar novamente.'
+        : '';
+
+    throw new Error(message + partialWarning);
+  }
+}
+
   async saveTeamMember(
     member: TeamMember
   ): Promise<void> {

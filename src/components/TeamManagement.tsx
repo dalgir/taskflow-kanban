@@ -55,8 +55,11 @@ export function TeamManagement() {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const userIsAdmin = isAdmin();
 
+  const savingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const userIsAdmin = isAdmin();
   const openModal = (member?: TeamMember) => {
     if (!userIsAdmin) return;
 
@@ -86,6 +89,8 @@ export function TeamManagement() {
   };
 
   const closeModal = () => {
+    if (savingRef.current) return;
+
     setIsModalOpen(false);
     setEditingMember(null);
     setFormData({
@@ -98,26 +103,14 @@ export function TeamManagement() {
     });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    e.target.value = '';
 
-    if (!file.type.startsWith('image/')) {
-      alert('Por favor, selecione uma imagem válida.');
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      alert('A imagem deve ter no máximo 2MB.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setFormData({ ...formData, avatarUrl: base64 });
-    };
-    reader.readAsDataURL(file);
+    window.alert(
+      'O envio de fotos está indisponível no momento. Escolha um avatar com emoji.'
+    );
   };
 
   const removePhoto = () => {
@@ -127,28 +120,94 @@ export function TeamManagement() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.role) return;
 
-    if (editingMember) {
-      updateTeamMember(editingMember.id, formData);
-    } else {
-      addTeamMember(formData);
-    }
-
-    closeModal();
-  };
-
-  const handleDelete = (memberId: string) => {
-    if (!userIsAdmin) return;
+    if (!userIsAdmin || savingRef.current) return;
 
     if (
-      window.confirm(
-        'Tem certeza que deseja remover este membro? As tarefas atribuídas serão movidas para o backlog.'
-      )
+      !formData.name.trim() ||
+      !formData.email.trim() ||
+      !formData.role.trim()
     ) {
-      deleteTeamMember(memberId);
+      window.alert('Preencha nome, e-mail e função.');
+      return;
+    }
+
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      if (editingMember) {
+        if (formData.email !== editingMember.email) {
+          throw new Error(
+            'A alteração de e-mail ainda não está disponível neste formulário.'
+          );
+        }
+
+        const updates: Partial<TeamMember> = {
+          name: formData.name.trim(),
+          role: formData.role.trim(),
+          avatar: formData.avatar,
+          isAdmin: formData.isAdmin,
+        };
+
+        if (
+          (formData.avatarUrl ?? '') !==
+          (editingMember.avatarUrl ?? '')
+        ) {
+          updates.avatarUrl = formData.avatarUrl ?? '';
+        }
+
+        await updateTeamMember(editingMember.id, updates);
+      } else {
+        // A criação ainda utiliza o fluxo anterior.
+        await addTeamMember(formData);
+      }
+
+      savingRef.current = false;
+      closeModal();
+    } catch (error) {
+      console.error('Erro ao salvar membro:', error);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível salvar o membro.'
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (
+    memberId: string
+  ): Promise<void> => {
+    if (!userIsAdmin || savingRef.current) return;
+
+    const confirmed = window.confirm(
+      'Tem certeza que deseja remover este membro? As tarefas atribuídas serão movidas para o backlog.'
+    );
+
+    if (!confirmed) return;
+
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      await deleteTeamMember(memberId);
+    } catch (error) {
+      console.error('Erro ao remover membro:', error);
+
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível remover o membro.'
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -218,9 +277,9 @@ export function TeamManagement() {
                     className={cn(
                       'flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl text-3xl shadow-sm',
                       !member.avatarUrl &&
-                        (member.isAdmin
-                          ? 'bg-gradient-to-br from-amber-100 to-amber-200'
-                          : 'bg-gradient-to-br from-blue-100 to-blue-200')
+                      (member.isAdmin
+                        ? 'bg-gradient-to-br from-amber-100 to-amber-200'
+                        : 'bg-gradient-to-br from-blue-100 to-blue-200')
                     )}
                   >
                     {member.avatarUrl ? (
@@ -355,8 +414,11 @@ export function TeamManagement() {
 
               {/* Content */}
               <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-                <form onSubmit={handleSubmit} className="space-y-5">
-                  {/* Foto */}
+                <form
+                  id="team-member-form"
+                  onSubmit={handleSubmit}
+                  className="space-y-5"
+                >                  {/* Foto */}
                   <section className="rounded-2xl border border-gray-200 bg-gray-50/70 p-4 sm:p-5">
                     <label className="mb-3 block text-sm font-semibold text-gray-700">
                       <span className="flex items-center gap-2">
@@ -581,11 +643,12 @@ export function TeamManagement() {
 
                   <button
                     type="submit"
-                    onClick={handleSubmit}
-                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                    form="team-member-form"
+                    disabled={isSaving}
+                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Save className="h-4 w-4" />
-                    Salvar
+                    {isSaving ? 'Salvando...' : 'Salvar'}
                   </button>
                 </div>
               </div>

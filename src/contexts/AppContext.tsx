@@ -103,17 +103,17 @@ interface AppContextType extends AppState {
   ) => void;
 
   addTeamMember: (
-    member: Omit<TeamMember, 'id'>
-  ) => void;
+  member: Omit<TeamMember, 'id'>
+) => Promise<void>;
 
   updateTeamMember: (
-    memberId: string,
-    updates: Partial<TeamMember>
-  ) => void;
+  memberId: string,
+  updates: Partial<TeamMember>
+) => Promise<void>;
 
   deleteTeamMember: (
-    memberId: string
-  ) => void;
+  memberId: string
+) => Promise<void>;
 
   addNotification: (
     notification: Omit<
@@ -2359,197 +2359,266 @@ export function AppProvider({
    * EQUIPE
    * =========================================
    */
-  const addTeamMember = (
-    member:
-      Omit<
-        TeamMember,
-        'id'
-      >
-  ) => {
-    if (
-      !currentUser?.isAdmin
-    ) {
-      return;
-    }
-
-    const newMember:
-      TeamMember =
-      normalizeMember({
-        ...member,
-
-        id:
-          generateId(),
-      });
-
-    setTeamMembers(
-      (
-        prev
-      ) =>
-        sortTeamMembers(
-          [
-            ...prev,
-            newMember,
-          ]
-        )
+ const addTeamMember = async (
+  member: Omit<TeamMember, 'id'>
+): Promise<void> => {
+  if (!currentUser?.isAdmin) {
+    throw new Error(
+      'Somente um administrador pode cadastrar membros.'
     );
+  }
 
-    if (
-      firebaseEnabled
-    ) {
-      void databaseService
-        .saveTeamMember(
-          newMember
-        )
-        .catch(
-          (
-            error
-          ) => {
-            console.error(
-              'Erro ao salvar membro:',
-              error
-            );
-          }
-        );
-    }
-  };
+  const version = sessionVersion.current;
 
-  const updateTeamMember = (
-    memberId:
-      string,
+  const name = member.name.trim();
+  const email = member.email.trim().toLowerCase();
+  const role = member.role.trim();
 
-    updates:
-      Partial<TeamMember>
-  ) => {
-    if (
-      !currentUser?.isAdmin &&
-      currentUser?.id !==
-        memberId
-    ) {
-      return;
-    }
+  if (!name || !email || !role) {
+    throw new Error('Preencha nome, e-mail e função.');
+  }
 
-    const nextMembers =
-      teamMembers.map(
-        (
-          member
-        ) =>
-          member.id ===
-          memberId
-            ? normalizeMember({
-                ...member,
-                ...updates,
-              })
-            : member
+  if (
+    teamMembers.some(
+      item => item.email.trim().toLowerCase() === email
+    )
+  ) {
+    throw new Error(
+      'Já existe um membro com esse e-mail.'
+    );
+  }
+
+  let savedMember: TeamMember;
+
+  if (firebaseEnabled) {
+    savedMember = await databaseService.createTeamMemberViaApi({
+      name,
+      email,
+      role,
+      avatar: member.avatar,
+      isAdmin: member.isAdmin,
+    });
+  } else {
+    savedMember = normalizeMember({
+      ...member,
+      id: generateId(),
+      name,
+      email,
+      role,
+      isActive: true,
+    });
+
+    await databaseService.saveTeamMember(savedMember);
+  }
+
+  // Não aplica uma resposta recebida após troca de sessão.
+  if (sessionVersion.current !== version) return;
+
+  setTeamMembers(prev =>
+    sortTeamMembers([
+      ...prev.filter(item => item.id !== savedMember.id),
+      savedMember,
+    ])
+  );
+};
+const updateTeamMember = async (
+  memberId: string,
+  updates: Partial<TeamMember>
+): Promise<void> => {
+  const actor = currentUser;
+
+  if (!actor) {
+    throw new Error('Faça login para editar o cadastro.');
+  }
+
+  if (!actor.isAdmin && actor.id !== memberId) {
+    throw new Error('Você não pode editar esse membro.');
+  }
+
+  const member = teamMembers.find(
+    item => item.id === memberId
+  );
+
+  if (!member) {
+    throw new Error('Membro não encontrado.');
+  }
+
+  const allowedFields = actor.isAdmin
+    ? [
+        'name',
+        'role',
+        'avatar',
+        'avatarUrl',
+        'isAdmin',
+        'isActive',
+      ]
+    : ['name', 'avatar', 'avatarUrl'];
+
+  const changedEntries = Object.entries(updates).filter(
+    ([key, value]) =>
+      value !== member[key as keyof TeamMember]
+  );
+
+  if (
+    changedEntries.some(
+      ([key]) => !allowedFields.includes(key)
+    )
+  ) {
+    throw new Error(
+      'Esta edição contém campos que não podem ser alterados por esse fluxo.'
+    );
+  }
+
+  if (changedEntries.length === 0) return;
+
+  const safeUpdates = Object.fromEntries(
+    changedEntries
+  ) as Partial<TeamMember>;
+
+  const updatedMember = normalizeMember({
+    ...member,
+    ...safeUpdates,
+    id: member.id,
+    firebaseUid: member.firebaseUid,
+  });
+
+  const version = sessionVersion.current;
+
+  if (firebaseEnabled && actor.isAdmin) {
+    if (!member.firebaseUid) {
+      throw new Error(
+        'O cadastro não possui vínculo com o Authentication.'
       );
+    }
 
-    const updatedMember =
-      nextMembers.find(
-        (
-          member
-        ) =>
-          member.id ===
-          memberId
-      );
+    await databaseService.updateTeamMemberViaApi(
+      member.firebaseUid,
+      safeUpdates
+    );
+  } else {
+    // Edição do próprio perfil por membro comum,
+    // ou gravação em memória no modo demonstração.
+    await databaseService.saveTeamMember(updatedMember);
+  }
 
-    setTeamMembers(
-      sortTeamMembers(
-        nextMembers
+  // Não aplica uma resposta recebida após troca de sessão.
+  if (sessionVersion.current !== version) return;
+
+  setTeamMembers(prev =>
+    sortTeamMembers(
+      prev.map(item =>
+        item.id === memberId ? updatedMember : item
       )
+    )
+  );
+};
+  const deleteTeamMember = async (
+  memberId: string
+): Promise<void> => {
+  const actor = currentUser;
+
+  if (!actor?.isAdmin) {
+    throw new Error(
+      'Somente um administrador pode remover membros.'
     );
+  }
 
-    if (
-      updatedMember &&
-      firebaseEnabled
-    ) {
-      void databaseService
-        .saveTeamMember(
-          updatedMember
-        )
-        .catch(
-          (
-            error
-          ) => {
-            console.error(
-              'Erro ao atualizar membro:',
-              error
-            );
-          }
-        );
-    }
-  };
+  if (actor.id === memberId) {
+    throw new Error(
+      'Você não pode excluir sua própria conta.'
+    );
+  }
 
-  const deleteTeamMember = (
-    memberId:
-      string
-  ) => {
-    if (
-      !currentUser?.isAdmin ||
-      currentUser.id ===
-        memberId
-    ) {
-      return;
+  const member = teamMembers.find(
+    item => item.id === memberId
+  );
+
+  if (!member) {
+    throw new Error('Membro não encontrado.');
+  }
+
+  const version = sessionVersion.current;
+
+  if (firebaseEnabled) {
+    if (!member.firebaseUid) {
+      throw new Error(
+        'O cadastro não possui vínculo com o Authentication.'
+      );
     }
 
-    setTeamMembers(
-      (
-        prev
-      ) =>
-        sortTeamMembers(
-          prev.filter(
+    try {
+      await databaseService.deleteTeamMemberViaApi(
+        member.firebaseUid
+      );
+    } catch (error) {
+      // Uma falha pode ocorrer depois de parte da operação.
+      // Busca o estado atual antes de mostrar o erro.
+      if (sessionVersion.current === version) {
+        try {
+          await applyRemoteData(actor, version);
+        } catch (reloadError) {
+          console.error(
+            'Não foi possível atualizar os dados após a falha:',
+            reloadError
+          );
+
+          throw new Error(
             (
-              member
-            ) =>
-              member.id !==
-              memberId
-          )
-        )
-    );
+              error instanceof Error
+                ? error.message
+                : 'Não foi possível confirmar a exclusão.'
+            ) +
+            ' A atualização da tela também falhou. Recarregue o aplicativo antes de continuar.'
+          );
+        }
+      }
 
-    setTasks(
-      (
-        prev
-      ) =>
-        prev.map(
-          (
-            task
-          ) =>
-            task.assigneeId ===
-            memberId
-              ? {
-                  ...task,
-
-                  assigneeId:
-                    null,
-
-                  columnId:
-                    'backlog',
-
-                  status:
-                    'planned',
-                }
-              : task
-        )
-    );
-
-    if (
-      firebaseEnabled
-    ) {
-      void databaseService
-        .deleteTeamMember(
-          memberId
-        )
-        .catch(
-          (
-            error
-          ) => {
-            console.error(
-              'Erro ao remover membro:',
-              error
-            );
-          }
-        );
+      throw error;
     }
-  };
+
+    if (sessionVersion.current !== version) return;
+
+    // Carrega as tarefas que a API realmente moveu.
+    try {
+      await applyRemoteData(actor, version);
+    } catch (error) {
+      console.error(
+        'Exclusão concluída, mas a atualização da tela falhou:',
+        error
+      );
+
+      throw new Error(
+        'O membro foi excluído, mas a tela não pôde ser atualizada. Recarregue o aplicativo; não repita a exclusão.'
+      );
+    }
+
+    return;
+  }
+
+  // Modo demonstração.
+  const remainingMembers = teamMembers.filter(
+    item => item.id !== memberId
+  );
+
+  const updatedTasks: Task[] = tasks.map(task =>
+    task.assigneeId === memberId
+      ? {
+          ...task,
+          assigneeId: null,
+          columnId: 'backlog',
+          status: 'planned',
+        }
+      : task
+  );
+
+  await databaseService.saveTeamMembers(remainingMembers);
+  await databaseService.saveTasks(updatedTasks);
+
+  if (sessionVersion.current !== version) return;
+
+  setTeamMembers(sortTeamMembers(remainingMembers));
+  setTasks(updatedTasks);
+};
 
   /*
    * =========================================
